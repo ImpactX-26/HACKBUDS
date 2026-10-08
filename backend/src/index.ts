@@ -18,6 +18,8 @@ export * from './evidence/fip-verifier.js';
 export * from './evidence/snapshot-builder.js';
 export * from './evidence/attestation-service.js';
 export * from './evidence/passport-client.js';
+export * from './evidence/commitment-adapter.js';
+export * from './evidence/prover-boundary.js';
 
 export * from './identity/types.js';
 export * from './identity/mock-idp.js';

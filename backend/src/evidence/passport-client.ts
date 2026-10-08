@@ -33,7 +33,64 @@ export interface PassportRecord {
   supersedes: number; // Previous revoked passportId, if any
 }
 
+export class ExpectedIdMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExpectedIdMismatchError';
+  }
+}
+
+export class ActivePassportExistsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ActivePassportExistsError';
+  }
+}
+
+export class ReissueNotAuthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReissueNotAuthorizedError';
+  }
+}
+
+export class CommitmentUnchangedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CommitmentUnchangedError';
+  }
+}
+
+export class EvidenceTimestampRegressedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EvidenceTimestampRegressedError';
+  }
+}
+
+export class PassportNotActiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PassportNotActiveError';
+  }
+}
+
+export class LiveAdapterNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LiveAdapterNotConfiguredError';
+  }
+}
+
+export class LiveSubmissionProhibitedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LiveSubmissionProhibitedError';
+  }
+}
+
 export interface IGigPassportClient {
+  readonly isMockClient: boolean;
   getNextPassportId(): Promise<number>;
   getActivePassportByIdentity(identityNullifier: string): Promise<number>;
   getPassport(passportId: number): Promise<PassportRecord | null>;
@@ -42,11 +99,85 @@ export interface IGigPassportClient {
     expectedId: number,
     holder: string,
     identity: string,
-    evidence: EvidenceCommitmentData
+    evidence: EvidenceCommitmentData,
+    caller?: string
   ): Promise<number>;
-  refresh(passportId: number, evidence: EvidenceCommitmentData): Promise<void>;
-  revoke(passportId: number, reason: string): Promise<void>;
-  authorizeReissue(identity: string): Promise<void>;
+  refresh(passportId: number, evidence: EvidenceCommitmentData, caller?: string): Promise<void>;
+  revoke(passportId: number, reason: string, caller?: string): Promise<void>;
+  authorizeReissue(identity: string, caller?: string): Promise<void>;
+}
+
+/**
+ * LIVE PRODUCTION SMART CONTRACT ADAPTER BOUNDARY
+ * Communicates with on-chain GigPassport.sol contract deployed on Polygon Amoy / EVM.
+ * 
+ * FAIL-CLOSED INVARIANT:
+ * If no live contract address, RPC provider, or authenticated signer is provided,
+ * this client STRICTLY throws LiveAdapterNotConfiguredError. It NEVER fakes or
+ * simulates on-chain transaction success.
+ */
+export class LiveGigPassportContractClient implements IGigPassportClient {
+  public readonly isMockClient = false;
+  private contractAddress?: string;
+  private signerOrProvider?: any;
+
+  constructor(contractAddress?: string, signerOrProvider?: any) {
+    this.contractAddress = contractAddress;
+    this.signerOrProvider = signerOrProvider;
+  }
+
+  private assertConfigured(): void {
+    if (!this.contractAddress || !this.signerOrProvider) {
+      throw new LiveAdapterNotConfiguredError(
+        'LiveAdapterNotConfigured: live GigPassport contract address or RPC provider/signer is not configured. Backend A fails closed.'
+      );
+    }
+  }
+
+  public async getNextPassportId(): Promise<number> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract connection pending Backend B deployment.');
+  }
+
+  public async getActivePassportByIdentity(_identityNullifier: string): Promise<number> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract connection pending Backend B deployment.');
+  }
+
+  public async getPassport(_passportId: number): Promise<PassportRecord | null> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract connection pending Backend B deployment.');
+  }
+
+  public async isReissueAllowed(_identityNullifier: string): Promise<boolean> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract connection pending Backend B deployment.');
+  }
+
+  public async mint(
+    _expectedId: number,
+    _holder: string,
+    _identity: string,
+    _evidence: EvidenceCommitmentData
+  ): Promise<number> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract mint pending Backend B deployment.');
+  }
+
+  public async refresh(_passportId: number, _evidence: EvidenceCommitmentData): Promise<void> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract refresh pending Backend B deployment.');
+  }
+
+  public async revoke(_passportId: number, _reason: string): Promise<void> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract revoke pending Backend B deployment.');
+  }
+
+  public async authorizeReissue(_identity: string): Promise<void> {
+    this.assertConfigured();
+    throw new LiveAdapterNotConfiguredError('Live contract authorizeReissue pending Backend B deployment.');
+  }
 }
 
 /**
@@ -110,14 +241,14 @@ export class MockGigPassportContract implements IGigPassportClient {
       throw new Error('AccessControl: caller is not authorized with ATTESTER_ROLE');
     }
     if (expectedId !== this.nextPassportId) {
-      throw new Error(`ExpectedIdMismatch: expected ${expectedId}, actual ${this.nextPassportId}`);
+      throw new ExpectedIdMismatchError(`ExpectedIdMismatch: expected ${expectedId}, actual ${this.nextPassportId}`);
     }
     const cleanIdentity = identity.toLowerCase();
     const cleanHolder = holder.toLowerCase();
 
     // Check active passport does not already exist
     if ((this.activePassportByIdentity.get(cleanIdentity) || 0) !== 0) {
-      throw new Error(`ActivePassportExists: identity ${cleanIdentity} already has an ACTIVE passport`);
+      throw new ActivePassportExistsError(`ActivePassportExists: identity ${cleanIdentity} already has an ACTIVE passport`);
     }
 
     // Reissue check if previous passport exists
@@ -125,7 +256,7 @@ export class MockGigPassportContract implements IGigPassportClient {
     if (previous !== 0) {
       const prevPassport = this.passports.get(previous);
       if (!prevPassport || prevPassport.status !== 'REVOKED' || !this.reissueAllowedMap.get(cleanIdentity)) {
-        throw new Error(`ReissueNotAuthorized: identity ${cleanIdentity} has no reissue authorization`);
+        throw new ReissueNotAuthorizedError(`ReissueNotAuthorized: identity ${cleanIdentity} has no reissue authorization`);
       }
       this.reissueAllowedMap.set(cleanIdentity, false); // Consumed on mint
     }
@@ -168,14 +299,14 @@ export class MockGigPassportContract implements IGigPassportClient {
 
     const passport = this.passports.get(passportId);
     if (!passport || passport.status !== 'ACTIVE') {
-      throw new Error(`PassportNotActive: passport ${passportId} is not ACTIVE`);
+      throw new PassportNotActiveError(`PassportNotActive: passport ${passportId} is not ACTIVE`);
     }
 
     if (evidence.commitment === passport.evidenceCommitment) {
-      throw new Error('CommitmentUnchanged: refresh requires a modified commitment');
+      throw new CommitmentUnchangedError('CommitmentUnchanged: refresh requires a modified commitment');
     }
     if (evidence.updatedAt < passport.evidenceUpdatedAt) {
-      throw new Error('EvidenceTimestampRegressed: evidenceUpdatedAt cannot be older than current');
+      throw new EvidenceTimestampRegressedError('EvidenceTimestampRegressed: evidenceUpdatedAt cannot be older than current');
     }
 
     passport.evidenceCommitment = evidence.commitment;
@@ -195,7 +326,7 @@ export class MockGigPassportContract implements IGigPassportClient {
 
     const passport = this.passports.get(passportId);
     if (!passport || passport.status !== 'ACTIVE') {
-      throw new Error(`PassportNotActive: cannot revoke non-active passport ${passportId}`);
+      throw new PassportNotActiveError(`PassportNotActive: cannot revoke non-active passport ${passportId}`);
     }
 
     passport.status = 'REVOKED';

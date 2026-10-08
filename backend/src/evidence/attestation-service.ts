@@ -23,7 +23,25 @@ import { CURRENT_DIRECTORY_VERSION, getDirectoryForVersion } from './directory/r
 import type { VerifiedIdentityAssertion, WorkerWalletAuthorization, WorkerActionType } from '../identity/types.js';
 import { MockIdentityProvider, defaultMockIdp } from '../identity/mock-idp.js';
 import { verifyWorkerAuthorization, ReplayProtectionRegistry, defaultReplayRegistry } from '../identity/wallet-auth.js';
-import type { IGigPassportClient, EvidenceCommitmentData } from './passport-client.js';
+import {
+  type IGigPassportClient,
+  type EvidenceCommitmentData,
+  LiveAdapterNotConfiguredError,
+  LiveSubmissionProhibitedError,
+  ExpectedIdMismatchError,
+  ReissueNotAuthorizedError,
+} from './passport-client.js';
+import {
+  type IEvidenceCommitmentAdapter,
+  type CommitmentResult,
+  defaultCommitmentAdapter,
+} from './commitment-adapter.js';
+import {
+  type ITrustedProverAdapter,
+  defaultProverAdapter,
+  buildProverWitnessPayload,
+  type ProverHandoffResult,
+} from './prover-boundary.js';
 
 export interface AttestationRequest {
   consentId: string;
@@ -70,25 +88,39 @@ export class AttestationService {
   private idp: MockIdentityProvider;
   private replayRegistry: ReplayProtectionRegistry;
   private expectedChainId?: number;
+  private commitmentAdapter: IEvidenceCommitmentAdapter;
+  private passportContract?: IGigPassportClient;
 
   constructor(
     fipService: MockFIPService,
     trustedFipPublicKeys?: string[],
     idp: MockIdentityProvider = defaultMockIdp,
     replayRegistry: ReplayProtectionRegistry = defaultReplayRegistry,
-    expectedChainId?: number
+    expectedChainId?: number,
+    commitmentAdapter: IEvidenceCommitmentAdapter = defaultCommitmentAdapter,
+    passportContract?: IGigPassportClient
   ) {
     this.fipService = fipService;
     this.fipVerifier = new FIPVerifier(trustedFipPublicKeys);
     this.idp = idp;
     this.replayRegistry = replayRegistry;
     this.expectedChainId = expectedChainId;
+    this.commitmentAdapter = commitmentAdapter;
+    this.passportContract = passportContract;
 
     // Link trusted IDP with fipService so that private FIP data fetches verify caller authorization against the configured IDP
     const fipIdp = this.fipService?.getIdp?.();
     if (fipIdp && typeof fipIdp.registerTrustedIdpKey === 'function') {
       fipIdp.registerTrustedIdpKey(this.idp.getPublicKeyPem());
     }
+  }
+
+  public getCommitmentAdapter(): IEvidenceCommitmentAdapter {
+    return this.commitmentAdapter;
+  }
+
+  public getPassportContract(): IGigPassportClient | undefined {
+    return this.passportContract;
   }
 
   /**
@@ -320,12 +352,43 @@ export class AttestationService {
    * On ExpectedIdMismatch, NEVER silently modify an already-signed expected passport ID.
    * Requires a fresh worker authorization from reauthorizeWorker callback, or halts.
    */
+  /**
+   * Compute evidence commitment for an EvidenceSnapshot using the configured commitment adapter.
+   */
+  public async computeEvidenceCommitment(snapshot: EvidenceSnapshot): Promise<CommitmentResult> {
+    const res = await this.commitmentAdapter.computeCommitment(snapshot);
+    snapshot.evidenceCommitment = res.evidenceCommitment;
+    return res;
+  }
+
+  /**
+   * Execute attestation pipeline and compute evidence commitment.
+   */
+  public async attestWorkerEvidenceWithCommitment(request: AttestationRequest): Promise<AttestationResult> {
+    const result = this.attestWorkerEvidence(request);
+    await this.computeEvidenceCommitment(result.snapshot);
+    return result;
+  }
+
+  /**
+   * Complete on-chain passport issuance with sequential ID contention handling.
+   * 
+   * Security Invariant:
+   * On ExpectedIdMismatch, NEVER silently modify an already-signed expected passport ID.
+   * Requires a fresh worker authorization from reauthorizeWorker callback, or halts.
+   */
   public async attestAndMintOnChain(
     request: AttestationRequest,
-    passportContract: IGigPassportClient,
+    passportContract = this.passportContract,
     reauthorizeWorker?: (newExpectedPassportId: number) => Promise<WorkerWalletAuthorization>,
     maxContentionRetries = 3
   ): Promise<{ passportId: number; attestation: AttestationResult }> {
+    if (!passportContract) {
+      throw new LiveAdapterNotConfiguredError(
+        'PassportContractNotConfigured: no passport contract client was provided or configured.'
+      );
+    }
+
     let currentRequest = { ...request };
     let attempts = 0;
 
@@ -357,18 +420,19 @@ export class AttestationService {
       // 3. Attest and derive snapshot with exact expectedId
       const attestation = this.attestWorkerEvidence(currentRequest);
 
-      // 4. Construct mock evidence commitment data
-      // MOCK TEST COMMITMENT ONLY: Local testing scalar digest prior to shared Poseidon freeze.
-      // Invariant: MUST NOT be submitted as a production Poseidon evidence commitment.
-      if (!(passportContract as any)?.isMockClient && (passportContract as any)?.constructor?.name !== 'MockGigPassportContract') {
-        throw new Error(
+      // 4. Construct evidence commitment data via injected commitment adapter
+      const commitmentRes = await this.commitmentAdapter.computeCommitment(attestation.snapshot);
+      attestation.snapshot.evidenceCommitment = commitmentRes.evidenceCommitment;
+
+      // Invariant: Mock commitments MUST NOT be submitted to live contracts
+      if (!passportContract.isMockClient && commitmentRes.isMockCommitment) {
+        throw new LiveSubmissionProhibitedError(
           'LiveSubmissionProhibited: mock SHA-256 test commitment minting is strictly confined to local MockGigPassportContract simulators. Live contract submission requires verified Poseidon commitment adapter.'
         );
       }
 
-      const mockTestCommitment = BigInt(`0x${attestation.evidenceDataHash}`).toString();
       const evidenceData: EvidenceCommitmentData = {
-        commitment: mockTestCommitment,
+        commitment: commitmentRes.evidenceCommitment,
         updatedAt: attestation.evidenceUpdatedAt,
         schemaVersion: 1,
         providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
@@ -398,5 +462,155 @@ export class AttestationService {
     }
 
     throw new Error(`Passport issuance failed after ${maxContentionRetries} contention retries`);
+  }
+
+  /**
+   * Refresh evidence on an existing ACTIVE passport on-chain (ATTESTER_ROLE).
+   */
+  public async refreshPassportEvidenceOnChain(
+    request: AttestationRequest,
+    passportId: number,
+    passportContract = this.passportContract
+  ): Promise<{ passportId: number; attestation: AttestationResult }> {
+    if (!passportContract) {
+      throw new LiveAdapterNotConfiguredError(
+        'PassportContractNotConfigured: no passport contract client was provided or configured.'
+      );
+    }
+    if (request.walletAuthorization?.action !== 'REFRESH_PASSPORT') {
+      throw new Error(
+        `InvalidAction: refresh requires wallet authorization action REFRESH_PASSPORT, got ${request.walletAuthorization?.action}`
+      );
+    }
+
+    const attestation = this.attestWorkerEvidence(request);
+    const commitmentRes = await this.commitmentAdapter.computeCommitment(attestation.snapshot);
+    attestation.snapshot.evidenceCommitment = commitmentRes.evidenceCommitment;
+
+    if (!passportContract.isMockClient && commitmentRes.isMockCommitment) {
+      throw new LiveSubmissionProhibitedError(
+        'LiveSubmissionProhibited: mock test commitment refresh is strictly confined to local MockGigPassportContract simulators. Live contract submission requires verified Poseidon commitment adapter.'
+      );
+    }
+
+    const evidenceData: EvidenceCommitmentData = {
+      commitment: commitmentRes.evidenceCommitment,
+      updatedAt: attestation.evidenceUpdatedAt,
+      schemaVersion: 1,
+      providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
+      sourceDirectoryVersion: attestation.sourceDirectoryVersion,
+    };
+
+    await passportContract.refresh(passportId, evidenceData);
+    return { passportId, attestation };
+  }
+
+  /**
+   * Reissue replacement passport on-chain after administrative revocation (ATTESTER_ROLE).
+   */
+  public async reissuePassportOnChain(
+    request: AttestationRequest,
+    passportContract = this.passportContract
+  ): Promise<{ passportId: number; attestation: AttestationResult }> {
+    if (!passportContract) {
+      throw new LiveAdapterNotConfiguredError(
+        'PassportContractNotConfigured: no passport contract client was provided or configured.'
+      );
+    }
+    if (request.walletAuthorization?.action !== 'REISSUE_PASSPORT') {
+      throw new Error(
+        `InvalidAction: reissue requires wallet authorization action REISSUE_PASSPORT, got ${request.walletAuthorization?.action}`
+      );
+    }
+
+    const cleanNullifier = request.workerIdentityNullifier.toLowerCase().trim();
+    const isAllowed = await passportContract.isReissueAllowed(cleanNullifier);
+    if (!isAllowed) {
+      throw new ReissueNotAuthorizedError(
+        `ReissueNotAuthorized: identity nullifier ${cleanNullifier} is not authorized for reissue`
+      );
+    }
+
+    const nextId = await passportContract.getNextPassportId();
+    if (request.expectedPassportId !== nextId) {
+      throw new ExpectedIdMismatchError(
+        `ExpectedIdMismatch: requested passport ID ${request.expectedPassportId} does not match contract next ID ${nextId}`
+      );
+    }
+
+    const attestation = this.attestWorkerEvidence(request);
+    const commitmentRes = await this.commitmentAdapter.computeCommitment(attestation.snapshot);
+    attestation.snapshot.evidenceCommitment = commitmentRes.evidenceCommitment;
+
+    if (!passportContract.isMockClient && commitmentRes.isMockCommitment) {
+      throw new LiveSubmissionProhibitedError(
+        'LiveSubmissionProhibited: mock test commitment reissue is strictly confined to local MockGigPassportContract simulators. Live contract submission requires verified Poseidon commitment adapter.'
+      );
+    }
+
+    const evidenceData: EvidenceCommitmentData = {
+      commitment: commitmentRes.evidenceCommitment,
+      updatedAt: attestation.evidenceUpdatedAt,
+      schemaVersion: 1,
+      providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
+      sourceDirectoryVersion: attestation.sourceDirectoryVersion,
+    };
+
+    const passportId = await passportContract.mint(
+      nextId,
+      attestation.holderBinding,
+      attestation.identityNullifierHash,
+      evidenceData
+    );
+
+    return { passportId, attestation };
+  }
+
+  /**
+   * Terminal revocation of a compromised passport (ADMIN_ROLE).
+   */
+  public async revokePassportOnChain(
+    passportId: number,
+    reason: string,
+    adminCaller?: string,
+    passportContract = this.passportContract
+  ): Promise<void> {
+    if (!passportContract) {
+      throw new LiveAdapterNotConfiguredError(
+        'PassportContractNotConfigured: no passport contract client was provided or configured.'
+      );
+    }
+    await passportContract.revoke(passportId, reason, adminCaller);
+  }
+
+  /**
+   * Authorize replacement passport reissue for a revoked identity (ADMIN_ROLE).
+   */
+  public async authorizeReissueOnChain(
+    identityNullifier: string,
+    adminCaller?: string,
+    passportContract = this.passportContract
+  ): Promise<void> {
+    if (!passportContract) {
+      throw new LiveAdapterNotConfiguredError(
+        'PassportContractNotConfigured: no passport contract client was provided or configured.'
+      );
+    }
+    await passportContract.authorizeReissue(identityNullifier, adminCaller);
+  }
+
+  /**
+   * Private witness handoff to trusted Prover component boundary.
+   */
+  public async handoffToProver(
+    request: ReconstructEvidenceRequest,
+    proverAdapter: ITrustedProverAdapter = defaultProverAdapter
+  ): Promise<ProverHandoffResult> {
+    const { snapshot } = this.reconstructEvidenceSnapshot(request);
+    const commitmentRes = await this.commitmentAdapter.computeCommitment(snapshot);
+    snapshot.evidenceCommitment = commitmentRes.evidenceCommitment;
+
+    const payload = buildProverWitnessPayload(snapshot, commitmentRes.evidenceCommitment);
+    return proverAdapter.handoffWitness(payload);
   }
 }

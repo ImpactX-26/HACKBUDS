@@ -24,6 +24,26 @@ import { FIPVerifier } from '../evidence/fip-verifier.js';
 import type { SignedFIPEnvelope } from '../fip/types.js';
 import { MockIdentityProvider, defaultMockIdp } from '../identity/mock-idp.js';
 import { verifyWorkerAuthorization, ReplayProtectionRegistry, defaultReplayRegistry } from '../identity/wallet-auth.js';
+import {
+  type IGigPassportClient,
+  LiveAdapterNotConfiguredError,
+  LiveSubmissionProhibitedError,
+  ExpectedIdMismatchError,
+  ActivePassportExistsError,
+  ReissueNotAuthorizedError,
+  PassportNotActiveError,
+  CommitmentUnchangedError,
+  EvidenceTimestampRegressedError,
+} from '../evidence/passport-client.js';
+import {
+  type IEvidenceCommitmentAdapter,
+  defaultCommitmentAdapter,
+} from '../evidence/commitment-adapter.js';
+import {
+  type ITrustedProverAdapter,
+  defaultProverAdapter,
+} from '../evidence/prover-boundary.js';
+import { AttestationService } from '../evidence/attestation-service.js';
 import crypto from 'node:crypto';
 
 export interface AttestationAppOptions {
@@ -34,6 +54,11 @@ export interface AttestationAppOptions {
   strictAuthentication?: boolean; // When true, requires identityAssertion and walletAuthorization
   replayRegistry?: ReplayProtectionRegistry;
   expectedChainId?: number;
+  commitmentAdapter?: IEvidenceCommitmentAdapter;
+  passportContract?: IGigPassportClient;
+  proverAdapter?: ITrustedProverAdapter;
+  attestationService?: AttestationService;
+  adminApiKey?: string;
 }
 
 export function createAttestationApp(options: AttestationAppOptions): Express {
@@ -45,7 +70,25 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     strictAuthentication = true, // FAIL-CLOSED DEFAULT: Mandatory worker authentication
     replayRegistry = defaultReplayRegistry,
     expectedChainId,
+    commitmentAdapter = defaultCommitmentAdapter,
+    passportContract = options.passportContract,
+    proverAdapter = defaultProverAdapter,
+    adminApiKey = options.adminApiKey,
   } = options;
+
+  const attestationService =
+    options.attestationService ||
+    (fipService
+      ? new AttestationService(
+          fipService,
+          trustedFipPublicKeys,
+          idp,
+          replayRegistry,
+          expectedChainId,
+          commitmentAdapter,
+          passportContract
+        )
+      : undefined);
 
   const app = express();
   app.use(express.json());
@@ -272,6 +315,11 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         sourceDirectoryVersion,
       });
 
+      if (commitmentAdapter) {
+        const commRes = await commitmentAdapter.computeCommitment(snapshot);
+        snapshot.evidenceCommitment = commRes.evidenceCommitment;
+      }
+
       // Step F: Return attestation result (zero persistence of raw records)
       res.json({
         success: true,
@@ -463,6 +511,11 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         sourceDirectoryVersion,
       });
 
+      if (commitmentAdapter) {
+        const commRes = await commitmentAdapter.computeCommitment(snapshot);
+        snapshot.evidenceCommitment = commRes.evidenceCommitment;
+      }
+
       res.json({
         success: true,
         reconstructed: true,
@@ -470,6 +523,224 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       });
     } catch (err: any) {
       res.status(400).json({ error: 'RECONSTRUCTION_FAILED', message: err.message });
+    }
+  });
+
+  // Error translation helper for attestation and contract adapter errors
+  function handleAttestationError(err: any, res: Response) {
+    const msg = err.message || 'Operation failed';
+    if (err instanceof LiveAdapterNotConfiguredError || msg.includes('PassportContractNotConfigured')) {
+      res.status(503).json({ error: 'LIVE_ADAPTER_NOT_CONFIGURED', message: msg });
+    } else if (err instanceof LiveSubmissionProhibitedError || msg.includes('LiveSubmissionProhibited')) {
+      res.status(400).json({ error: 'LIVE_SUBMISSION_PROHIBITED', message: msg });
+    } else if (err instanceof ExpectedIdMismatchError || msg.includes('ExpectedIdMismatch')) {
+      res.status(409).json({ error: 'EXPECTED_ID_MISMATCH', message: msg });
+    } else if (err instanceof ActivePassportExistsError || msg.includes('ActivePassportExists')) {
+      res.status(409).json({ error: 'ACTIVE_PASSPORT_EXISTS', message: msg });
+    } else if (err instanceof ReissueNotAuthorizedError || msg.includes('ReissueNotAuthorized')) {
+      res.status(403).json({ error: 'REISSUE_NOT_AUTHORIZED', message: msg });
+    } else if (err instanceof PassportNotActiveError || msg.includes('PassportNotActive')) {
+      res.status(400).json({ error: 'PASSPORT_NOT_ACTIVE', message: msg });
+    } else if (err instanceof CommitmentUnchangedError || msg.includes('CommitmentUnchanged')) {
+      res.status(400).json({ error: 'COMMITMENT_UNCHANGED', message: msg });
+    } else if (err instanceof EvidenceTimestampRegressedError || msg.includes('EvidenceTimestampRegressed')) {
+      res.status(400).json({ error: 'EVIDENCE_TIMESTAMP_REGRESSED', message: msg });
+    } else if (msg.includes('Replay') || msg.includes('REPLAY_ATTACK_DETECTED')) {
+      res.status(409).json({ error: 'REPLAY_ATTACK_DETECTED', message: msg });
+    } else if (msg.includes('AuthenticationRequired')) {
+      res.status(401).json({ error: 'AUTHENTICATION_REQUIRED', message: msg });
+    } else if (msg.includes('Identity assertion') || msg.includes('Account owner binding mismatch')) {
+      res.status(403).json({ error: 'IDENTITY_MISMATCH', message: msg });
+    } else if (msg.includes('Wallet authorization') || msg.includes('UnauthorizedWorkerAction')) {
+      res.status(401).json({ error: 'WALLET_AUTHORIZATION_INVALID', message: msg });
+    } else {
+      res.status(400).json({ error: 'OPERATION_FAILED', message: msg });
+    }
+  }
+
+  // 4. On-chain Passport Minting with Contentious Sequential ID Retry
+  app.post('/attestation/mint-on-chain', async (req: Request, res: Response) => {
+    try {
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      if (!attestationService) {
+        res.status(503).json({
+          error: 'ATTESTATION_SERVICE_UNAVAILABLE',
+          message: 'Attestation service not available for on-chain issuance',
+        });
+        return;
+      }
+      const result = await attestationService.attestAndMintOnChain(req.body);
+      res.json({
+        success: true,
+        passportId: result.passportId,
+        attestation: result.attestation,
+        evidenceCommitment: result.attestation.snapshot.evidenceCommitment,
+      });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 5. On-chain Evidence Refresh on ACTIVE Passport
+  app.post('/attestation/refresh-on-chain', async (req: Request, res: Response) => {
+    try {
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      if (!attestationService) {
+        res.status(503).json({
+          error: 'ATTESTATION_SERVICE_UNAVAILABLE',
+          message: 'Attestation service not available for on-chain refresh',
+        });
+        return;
+      }
+      const passportId = req.body.passportId ?? req.body.expectedPassportId;
+      if (passportId === undefined || typeof passportId !== 'number' || !Number.isSafeInteger(passportId) || passportId < 0) {
+        res.status(400).json({ error: 'Missing or invalid passportId' });
+        return;
+      }
+      const result = await attestationService.refreshPassportEvidenceOnChain(req.body, passportId);
+      res.json({
+        success: true,
+        passportId: result.passportId,
+        attestation: result.attestation,
+        evidenceCommitment: result.attestation.snapshot.evidenceCommitment,
+      });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 6. On-chain Passport Reissue after Revocation
+  app.post('/attestation/reissue-on-chain', async (req: Request, res: Response) => {
+    try {
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      if (!attestationService) {
+        res.status(503).json({
+          error: 'ATTESTATION_SERVICE_UNAVAILABLE',
+          message: 'Attestation service not available for on-chain reissue',
+        });
+        return;
+      }
+      const result = await attestationService.reissuePassportOnChain(req.body);
+      res.json({
+        success: true,
+        passportId: result.passportId,
+        attestation: result.attestation,
+        evidenceCommitment: result.attestation.snapshot.evidenceCommitment,
+      });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 7. Read Passport Record by ID
+  app.get('/attestation/passport/:passportId', async (req: Request, res: Response) => {
+    try {
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      const passportId = Number(req.params.passportId);
+      if (isNaN(passportId) || !Number.isSafeInteger(passportId) || passportId < 0) {
+        res.status(400).json({ error: 'Invalid passportId parameter' });
+        return;
+      }
+      const passport = await passportContract.getPassport(passportId);
+      if (!passport) {
+        res.status(404).json({ error: 'PASSPORT_NOT_FOUND', message: `Passport #${passportId} not found` });
+        return;
+      }
+      res.json({ success: true, passport });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 8. Private Prover Handoff Boundary
+  app.post('/attestation/prover/handoff', async (req: Request, res: Response) => {
+    try {
+      if (!attestationService) {
+        res.status(503).json({
+          error: 'ATTESTATION_SERVICE_UNAVAILABLE',
+          message: 'Attestation service not available for prover handoff',
+        });
+        return;
+      }
+      const result = await attestationService.handoffToProver(req.body, proverAdapter);
+      res.json({
+        success: true,
+        handoff: result,
+      });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 9. Admin Terminal Revocation (ADMIN_ROLE)
+  app.post('/attestation/admin/revoke', async (req: Request, res: Response) => {
+    try {
+      if (adminApiKey) {
+        const authHeader = req.headers['authorization'];
+        const providedKey = req.headers['x-admin-key'] || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined);
+        if (providedKey !== adminApiKey) {
+          res.status(403).json({ error: 'ADMIN_UNAUTHORIZED', message: 'Invalid or missing admin credentials' });
+          return;
+        }
+      }
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      const { passportId, reason, adminCaller } = req.body;
+      if (passportId === undefined || typeof passportId !== 'number' || !Number.isSafeInteger(passportId) || passportId < 0) {
+        res.status(400).json({ error: 'Missing or invalid passportId' });
+        return;
+      }
+      if (!reason || typeof reason !== 'string') {
+        res.status(400).json({ error: 'Missing or invalid reason' });
+        return;
+      }
+      if (attestationService) {
+        await attestationService.revokePassportOnChain(passportId, reason, adminCaller);
+      } else {
+        await passportContract.revoke(passportId, reason, adminCaller);
+      }
+      res.json({ success: true, passportId, status: 'REVOKED' });
+    } catch (err: any) {
+      handleAttestationError(err, res);
+    }
+  });
+
+  // 10. Admin Authorize Reissue (ADMIN_ROLE)
+  app.post('/attestation/admin/authorize-reissue', async (req: Request, res: Response) => {
+    try {
+      if (adminApiKey) {
+        const authHeader = req.headers['authorization'];
+        const providedKey = req.headers['x-admin-key'] || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined);
+        if (providedKey !== adminApiKey) {
+          res.status(403).json({ error: 'ADMIN_UNAUTHORIZED', message: 'Invalid or missing admin credentials' });
+          return;
+        }
+      }
+      if (!passportContract) {
+        throw new LiveAdapterNotConfiguredError('PassportContractNotConfigured: no passport contract client configured');
+      }
+      const { identityNullifier, adminCaller } = req.body;
+      if (!identityNullifier || typeof identityNullifier !== 'string') {
+        res.status(400).json({ error: 'Missing or invalid identityNullifier' });
+        return;
+      }
+      if (attestationService) {
+        await attestationService.authorizeReissueOnChain(identityNullifier, adminCaller);
+      } else {
+        await passportContract.authorizeReissue(identityNullifier, adminCaller);
+      }
+      res.json({ success: true, identityNullifier, reissueAuthorized: true });
+    } catch (err: any) {
+      handleAttestationError(err, res);
     }
   });
 

@@ -14,6 +14,10 @@ import { ConsentService } from '../fip/consent-service.js';
 import { MockFIPService } from '../fip/fip-service.js';
 import { defaultMockIdp, type MockIdentityProvider } from '../identity/mock-idp.js';
 import type { ReplayProtectionRegistry } from '../identity/wallet-auth.js';
+import type { IEvidenceCommitmentAdapter } from '../evidence/commitment-adapter.js';
+import type { IGigPassportClient } from '../evidence/passport-client.js';
+import type { ITrustedProverAdapter } from '../evidence/prover-boundary.js';
+import type { AttestationService } from '../evidence/attestation-service.js';
 
 export interface UnifiedAppOptions {
   storage?: MockFIPStorage;
@@ -23,6 +27,11 @@ export interface UnifiedAppOptions {
   strictAuthentication?: boolean;
   replayRegistry?: ReplayProtectionRegistry;
   expectedChainId?: number;
+  commitmentAdapter?: IEvidenceCommitmentAdapter;
+  passportContract?: IGigPassportClient;
+  proverAdapter?: ITrustedProverAdapter;
+  attestationService?: AttestationService;
+  adminApiKey?: string;
 }
 
 export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
@@ -51,6 +60,11 @@ export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
     strictAuthentication: options.strictAuthentication ?? true,
     replayRegistry: options.replayRegistry,
     expectedChainId: options.expectedChainId,
+    commitmentAdapter: options.commitmentAdapter,
+    passportContract: options.passportContract,
+    proverAdapter: options.proverAdapter,
+    attestationService: options.attestationService,
+    adminApiKey: options.adminApiKey,
   });
   app.use('/', attestationApp);
 

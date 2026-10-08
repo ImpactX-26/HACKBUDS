@@ -8,7 +8,8 @@
     "start": "node --import tsx src/http/server.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo": "node --import tsx src/demo/local-evidence-demo.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
