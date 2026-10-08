@@ -1,0 +1,361 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "productionReady": false,
+  "backendAConnected": false,
+  "checks": 55,
+  "passed": [
+    "mint synthetic passport",
+    "admin role configured",
+    "independent attester role configured",
+    "loan asset is deployed MockUSDC",
+    "loan liquidity funded",
+    "missing worker approval rejected before private access",
+    "forged verifier authorization rejected before private access",
+    "unsupported protocol rejected before private access",
+    "incorrect consumer policy rejected before private access",
+    "expired request rejected before private access",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-2",
+    "prover returns public package only synthetic-2",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-1",
+    "prover returns public package only synthetic-1",
+    "welfare Verify returns PASS",
+    "loan Verify returns PASS",
+    "unauthorized caller transaction rejected",
+    "modified public signal rejected by actual math verifier",
+    "modified signal consumer transaction rejected",
+    "eligible welfare claim (event fallback; no POL transfer)",
+    "eligible 100 MockUSDC loan",
+    "worker receives exactly 100 MockUSDC",
+    "duplicate active loan transaction rejected",
+    "approve exact repayment",
+    "repay exactly 100 MockUSDC",
+    "repayment clears identity debt",
+    "spent loan request replay transaction rejected after repayment",
+    "repeat welfare claim transaction rejected",
+    "refresh to insufficient activity fixture",
+    "stale approval rejected by prover",
+    "stale passport evidence transaction rejected",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-3",
+    "prover returns public package only synthetic-3",
+    "real proof honestly reports activity FAIL",
+    "insufficient eligibility transaction rejected",
+    "restore eligible evidence with changed commitment",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-4",
+    "prover returns public package only synthetic-4",
+    "fresh approved request reborrows after repayment",
+    "revoke old passport",
+    "authorize identity recovery",
+    "mint replacement passport for same identity",
+    "debt survives passport replacement",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-5",
+    "prover returns public package only synthetic-5",
+    "actual local Solidity Groth16 verifier accepts proof synthetic-6",
+    "prover returns public package only synthetic-6",
+    "replacement cannot duplicate active identity loan",
+    "replacement cannot duplicate lifetime identity welfare claim",
+    "second ACTIVE passport for identity rejected",
+    "fund synthetic replacement for recovery repayment",
+    "replacement approves exact debt",
+    "replacement repays inherited loan",
+    "final identity debt is zero",
+    "session setup and manifest removed on shutdown"
+  ],
+  "realProofs": 6,
+  "proofMetrics": [
+    {
+      "seconds": 14.159023099999999,
+      "parentRssBytes": 268730368,
+      "workerMaxRssBytes": 419823616,
+      "workerRssBytes": 392232960
+    },
+    {
+      "seconds": 18.255984600000005,
+      "parentRssBytes": 275136512,
+      "workerMaxRssBytes": 398725120,
+      "workerRssBytes": 392712192
+    },
+    {
+      "seconds": 12.804963799999998,
+      "parentRssBytes": 272232448,
+      "workerMaxRssBytes": 435564544,
+      "workerRssBytes": 392269824
+    },
+    {
+      "seconds": 13.63009079999999,
+      "parentRssBytes": 280690688,
+      "workerMaxRssBytes": 424452096,
+      "workerRssBytes": 391680000
+    },
+    {
+      "seconds": 12.865362699999999,
+      "parentRssBytes": 294424576,
+      "workerMaxRssBytes": 430825472,
+      "workerRssBytes": 392310784
+    },
+    {
+      "seconds": 13.729075099999987,
+      "parentRssBytes": 294473728,
+      "workerMaxRssBytes": 422666240,
+      "workerRssBytes": 393334784
+    }
+  ],
+  "elapsedSeconds": 162.0032219,
+  "deployment": {
+    "protocolVersion": "gv-local-prover-b4/1",
+    "eligibilityProfile": "gv-eligibility-0.2-provisional",
+    "commitmentProfile": "gv-poseidon-hash-only-0.1.0",
+    "localOnly": true,
+    "productionReady": false,
+    "chainId": 1337,
+    "rpcUrl": "http://127.0.0.1:60084",
+    "setupId": "aa3c49ce90dd51ad21dd8e4b634933d479e0b1b980b4855f68e6cfcfb223662f",
+    "setupDigests": {
+      "r1cs": "24c6bd72250c00721a5bae7250a87c7e904fdcc02799a1cef37bf94aee41133a",
+      "wasm": "d71a4f4a5fdf7d77d4f04d8bc95940dc3650e942fe948c8403115f1f586291a2",
+      "calculator": "cc2d37b2cff2a589dd86f8636f1a1dc9fe4a854550b021aa0cea2e235d14e942",
+      "zkey": "669e02548d3c6cbf94b29c2b4aaced0427811ee4849267d8f2fe76fce4ba7229",
+      "vk": "94024da9a682c7b171f7dfda90fabc970faae866928fc7782606481b5972cd5c",
+      "verifier": "03a299b4a60142e7e1d84ed86a32a915b23b6a2440250667019073ccc918f9e5"
+    },
+    "contracts": {
+      "passport": {
+        "address": "0x98f5a9BeB06c657C48267838d06cf5E0608dF19A",
+        "abi": "b4-abis/passport.abi.json",
+        "contract": "GigPassport"
+      },
+      "math": {
+        "address": "0x9f524eDab5A63001C89a798999A723CF71F2b0F9",
+        "abi": "b4-abis/math.abi.json",
+        "contract": "Groth16Verifier"
+      },
+      "token": {
+        "address": "0xA39d122776b8F1DCa31dB9B102335c7C3D175F9b",
+        "abi": "b4-abis/token.abi.json",
+        "contract": "MockUSDCV02"
+      },
+      "gate": {
+        "address": "0xa6F2e75B6fEBA2e39d784862d93A4Bb698e579e8",
+        "abi": "b4-abis/gate.abi.json",
+        "contract": "EligibilityGateV02"
+      },
+      "welfare": {
+        "address": "0xDeB440a03bEE53435240B3d173A8cEA52330699D",
+        "abi": "b4-abis/welfare.abi.json",
+        "contract": "WelfareVaultV02"
+      },
+      "loan": {
+        "address": "0x55D98589e2Dfb0aBacAe53366E6A9E2cad273C25",
+        "abi": "b4-abis/loan.abi.json",
+        "contract": "DemoLendingPoolV02"
+      }
+    },
+    "roles": {
+      "admin": "0x562e8dDe2e1Cf19487948b4FaF58d0005845E819",
+      "attester": "0x66dc1aEB89af5CC5898527bA2EeF6009AFad9A39",
+      "verifier": "0x7A3C2bf16bf3d6aFB76c76089F72B1E100bf4b6B"
+    },
+    "domain": {
+      "name": "GigVaultEligibility",
+      "version": "0.2-provisional",
+      "chainId": 1337,
+      "verifyingContract": "per-consumer"
+    },
+    "publicSignalOrder": [
+      "incomePass",
+      "historyPass",
+      "activityPass",
+      "authorizationBinding",
+      "expectedCommitment",
+      "passportId",
+      "holderBinding",
+      "evidenceUpdatedAt",
+      "evidenceVersion",
+      "verifierId",
+      "chainId",
+      "consumer",
+      "requestHi",
+      "requestLo",
+      "policyHi",
+      "policyLo",
+      "domainHi",
+      "domainLo",
+      "expiresAt",
+      "maxEvidenceAgeDays",
+      "incomeEnabled",
+      "incomeWindowMonths",
+      "minAverageIncomePaise",
+      "activityEnabled",
+      "activityIsWeekly",
+      "activityWindow",
+      "minActivePeriods",
+      "historyEnabled",
+      "minHistoryMonths"
+    ]
+  },
+  "transactions": [
+    {
+      "action": "deploy passport",
+      "hash": "0x7f05d9a2637d6bcb85b2c73ef32cb681711a172a998594ad1e4603caab8c1d25"
+    },
+    {
+      "action": "deploy math",
+      "hash": "0x269b042b0df45f48bbf21e56b163b531cbb5390ea6a5103a1c6a516f90346bb8"
+    },
+    {
+      "action": "deploy token",
+      "hash": "0x98de4e8b10b346d4d10091d9f6ad67f4d641383b13b23fbc0c6ae9eee08cd437"
+    },
+    {
+      "action": "deploy gate",
+      "hash": "0x5071f5dde1791e1ca9e5a34feffbb249961e220cb9b04f805e2150513fc72920"
+    },
+    {
+      "action": "deploy welfare",
+      "hash": "0xc92fe66bf0cad34c89c4c4c4e4edb68d29258f9d69f930f5a51f1b717066a951"
+    },
+    {
+      "action": "deploy loan",
+      "hash": "0x6937347158fd29ea5d8571d03669e18de64f8aa2b049760b66a8d2912079b26e"
+    },
+    {
+      "action": "fund loan with 1000 MockUSDC",
+      "hash": "0xfecab6b47e26c626fc73bc83b1cb5fca2bfa06a35c094e4539cd6d25e42c0c01"
+    },
+    {
+      "action": "mint synthetic passport",
+      "hash": "0xa2d52287829341e964082fec5786631b03cafdae4a88feb83e96b1d61c6585a9",
+      "gasUsed": "308246",
+      "status": 1
+    },
+    {
+      "action": "unauthorized caller transaction rejected",
+      "hash": "0xc6cbd4a759a628b22d06d853325877864187ad2dbeffd3091c80626821de1d51",
+      "status": 0
+    },
+    {
+      "action": "modified signal consumer transaction rejected",
+      "hash": "0x7eb6a7187ee25f63e1a3287379b74727d55b0627f3826e89a3348d9a9e0ca3a7",
+      "status": 0
+    },
+    {
+      "action": "eligible welfare claim (event fallback; no POL transfer)",
+      "hash": "0x2fc4a01a36ca444c7fc3a1f522b991dfa271ed4bba38e9358598a53f70aa7e3d",
+      "gasUsed": "503261",
+      "status": 1
+    },
+    {
+      "action": "eligible 100 MockUSDC loan",
+      "hash": "0xef0a4ad3987d4eb9291d0f24063968bc81611ce93ec2278fb1d6fceaea6cc426",
+      "gasUsed": "538156",
+      "status": 1
+    },
+    {
+      "action": "duplicate active loan transaction rejected",
+      "hash": "0x6d819b856f64daf72b207000a92e9f292bad5365817159e727dc869b82990431",
+      "status": 0
+    },
+    {
+      "action": "approve exact repayment",
+      "hash": "0x9f11483c225f73dda38f05f5b7edbda24061bdd1aa6d58eb47be26f8e61b9fb7",
+      "gasUsed": "45921",
+      "status": 1
+    },
+    {
+      "action": "repay exactly 100 MockUSDC",
+      "hash": "0xa477222385b21d11a7a85be5f0dd8a81e8e829acb98172b0b610378999d02ddf",
+      "gasUsed": "65897",
+      "status": 1
+    },
+    {
+      "action": "spent loan request replay transaction rejected after repayment",
+      "hash": "0x50e92d87d25f511052474a26e730894dfb77c0807a90e9fb5aa7af93e990f948",
+      "status": 0
+    },
+    {
+      "action": "repeat welfare claim transaction rejected",
+      "hash": "0x66533ab15c6a98f4df62e2fd40bdce01c2b69dc96ce028fc47e92abd3a514aa9",
+      "status": 0
+    },
+    {
+      "action": "refresh to insufficient activity fixture",
+      "hash": "0xfd4eee198a412e0be95cd4f8cd8adcbff80a928d9e87327c7ded83ec325730d6",
+      "gasUsed": "54008",
+      "status": 1
+    },
+    {
+      "action": "stale passport evidence transaction rejected",
+      "hash": "0xb10a7c4d1f6a9aa8388864104c72c10553ea1cd6ae241f13905415822dcb653e",
+      "status": 0
+    },
+    {
+      "action": "insufficient eligibility transaction rejected",
+      "hash": "0x4c1938d0bce4f63cbfc4c0a517938f1ff2f4a21aa7ec9187cda9bfd35b1e5830",
+      "status": 0
+    },
+    {
+      "action": "restore eligible evidence with changed commitment",
+      "hash": "0x5f2b39339e563cc108c7e5bc23b1f442715f31d478804642bb0d65ad35114b5a",
+      "gasUsed": "54008",
+      "status": 1
+    },
+    {
+      "action": "fresh approved request reborrows after repayment",
+      "hash": "0x4b230c2e0681c6b5a677c87889aae4c259d9dc2648ce1e040abea0c594d57647",
+      "gasUsed": "538168",
+      "status": 1
+    },
+    {
+      "action": "revoke old passport",
+      "hash": "0x8a99bccc87522aeedb63865ba0a800351fca9688dbeae8fac097a46966fb374b",
+      "gasUsed": "57033",
+      "status": 1
+    },
+    {
+      "action": "authorize identity recovery",
+      "hash": "0x323c93a582994aacc778eb37e9002f38639eae3c89646b58209c8a4fc90093b9",
+      "gasUsed": "54436",
+      "status": 1
+    },
+    {
+      "action": "mint replacement passport for same identity",
+      "hash": "0x96ff1abf845186a6870600e8e1649b10f7a1188ece3a3483166cd9d9ae7c923e",
+      "gasUsed": "313755",
+      "status": 1
+    },
+    {
+      "action": "replacement cannot duplicate active identity loan",
+      "hash": "0x1bddd11605aee2e9b9b0507b123575b7add05ace1572cae41ac58abed9df8000",
+      "status": 0
+    },
+    {
+      "action": "replacement cannot duplicate lifetime identity welfare claim",
+      "hash": "0x44468dc55ee43cf215cc2c33e3d943791384c51f71c287fd50e60e1997adf80d",
+      "status": 0
+    },
+    {
+      "action": "second ACTIVE passport for identity rejected",
+      "hash": "0xf9013e6a8e925c68f87dfa84cae96b9413f7fddcbeb975471377a07392f244ac",
+      "status": 0
+    },
+    {
+      "action": "fund synthetic replacement for recovery repayment",
+      "hash": "0x6f19b2da73e8c106c0fc2d5e43639e5e875b35322bd1c86713ef9c2c77896b37",
+      "gasUsed": "51192",
+      "status": 1
+    },
+    {
+      "action": "replacement approves exact debt",
+      "hash": "0x31fef0b4b0e1c08cd2ee7845b60a86bffb4ec060044e0ae7b230f94a0dddbf0c",
+      "gasUsed": "45921",
+      "status": 1
+    },
+    {
+      "action": "replacement repays inherited loan",
+      "hash": "0x820880984c881e7f602fc5da7e1df0e44b913fb3a3b3b7716e5fc9fe627b9abb",
+      "gasUsed": "65897",
+      "status": 1
+    }
+  ],
+  "cleanup": "verified: no session directory remains; no private witness files created"
+}

@@ -9,313 +9,313 @@
   "metrics": [
     {
       "label": "Combined eligibility setup",
-      "seconds": 18.5386988,
-      "sampledChildWorkingSetBytes": 950243328
+      "seconds": 22.8517064,
+      "sampledChildWorkingSetBytes": 924262400
     },
     {
       "label": "Local phase2 contribution",
-      "seconds": 10.798706399999999,
-      "sampledChildWorkingSetBytes": 423518208
+      "seconds": 9.7752965,
+      "sampledChildWorkingSetBytes": 441253888
     },
     {
       "label": "Export verification key",
-      "seconds": 0.6751710999999996,
+      "seconds": 0.5414423999999999,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Export local math verifier",
-      "seconds": 0.5960967000000019,
+      "seconds": 0.5152432999999946,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "PASS witness",
-      "seconds": 0.21136569999999846
+      "seconds": 0.16524480000000039
     },
     {
       "label": "PASS prove",
-      "seconds": 4.105201000000001,
-      "sampledChildWorkingSetBytes": 1500168192
+      "seconds": 3.8043285999999936,
+      "sampledChildWorkingSetBytes": 846606336
     },
     {
       "label": "PASS verify",
-      "seconds": 0.5813060000000041,
+      "seconds": 0.5224367999999958,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 0",
-      "seconds": 0.5873993999999948,
+      "seconds": 0.5717491000000009,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 1",
-      "seconds": 0.5591316999999981,
+      "seconds": 0.4947208000000028,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 2",
-      "seconds": 0.6756981999999989,
+      "seconds": 0.49620200000000475,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 4",
-      "seconds": 0.5580913999999976,
+      "seconds": 0.519886599999998,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 5",
-      "seconds": 0.6306376000000018,
+      "seconds": 0.5200256000000009,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 6",
-      "seconds": 0.5698974999999992,
+      "seconds": 0.5211778999999951,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 8",
-      "seconds": 0.6554445000000051,
+      "seconds": 0.4942290999999968,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 9",
-      "seconds": 0.6171206999999995,
+      "seconds": 0.5207943000000014,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 10",
-      "seconds": 0.5617065000000002,
+      "seconds": 0.5366125000000029,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 11",
-      "seconds": 0.5581676000000007,
+      "seconds": 0.5480351999999984,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 12",
-      "seconds": 0.5602936000000045,
+      "seconds": 0.503194199999998,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 13",
-      "seconds": 0.6372252999999982,
+      "seconds": 0.5543590999999942,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 14",
-      "seconds": 0.5438034000000044,
+      "seconds": 0.5589784,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 15",
-      "seconds": 0.5865727000000043,
+      "seconds": 0.6770879999999961,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 16",
-      "seconds": 0.5540547000000006,
+      "seconds": 0.5252684000000009,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 17",
-      "seconds": 0.5739628999999986,
+      "seconds": 0.5372343000000037,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 18",
-      "seconds": 0.5758258999999962,
+      "seconds": 0.5253061999999991,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 19",
-      "seconds": 0.5736933999999965,
+      "seconds": 0.5154097000000037,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "Reject altered public signal 22",
-      "seconds": 0.5667353000000003,
+      "seconds": 0.5419222999999984,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "income FAIL witness",
-      "seconds": 0.0985731999999989
+      "seconds": 0.08573539999999776
     },
     {
       "label": "income FAIL prove",
-      "seconds": 3.8939256999999996,
-      "sampledChildWorkingSetBytes": 1385136128
+      "seconds": 3.5382618999999975,
+      "sampledChildWorkingSetBytes": null
     },
     {
       "label": "income FAIL verify",
-      "seconds": 0.5241725000000006,
+      "seconds": 0.49704679999999646,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "history FAIL witness",
-      "seconds": 0.09724659999999857
+      "seconds": 0.08183269999999902
     },
     {
       "label": "history FAIL prove",
-      "seconds": 3.5942917000000016,
-      "sampledChildWorkingSetBytes": 277483520
+      "seconds": 3.392296999999999,
+      "sampledChildWorkingSetBytes": null
     },
     {
       "label": "history FAIL verify",
-      "seconds": 0.5540386999999973,
+      "seconds": 0.4888626999999979,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "activity FAIL witness",
-      "seconds": 0.0888327000000063
+      "seconds": 0.08471990000000369
     },
     {
       "label": "activity FAIL prove",
-      "seconds": 3.6535176999999965,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 3.395967499999999,
+      "sampledChildWorkingSetBytes": 169840640
     },
     {
       "label": "activity FAIL verify",
-      "seconds": 0.5866800999999978,
+      "seconds": 0.522115300000005,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 1 witness",
-      "seconds": 0.10323509999999078
+      "seconds": 0.12116559999999299
     },
     {
       "label": "consumer 1 prove",
-      "seconds": 3.542656799999997,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 4.266603900000002,
+      "sampledChildWorkingSetBytes": 1479180288
     },
     {
       "label": "consumer 1 verify",
-      "seconds": 0.5406720000000059,
+      "seconds": 0.7955475000000006,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 2 witness",
-      "seconds": 0.08134560000000056
+      "seconds": 0.12865260000000125
     },
     {
       "label": "consumer 2 prove",
-      "seconds": 3.551161300000007,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 5.371231199999995,
+      "sampledChildWorkingSetBytes": 1622970368
     },
     {
       "label": "consumer 2 verify",
-      "seconds": 0.5455745999999927,
+      "seconds": 0.9358003999999928,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 3 witness",
-      "seconds": 0.07857970000000204
+      "seconds": 0.09202509999999893
     },
     {
       "label": "consumer 3 prove",
-      "seconds": 3.7268415000000097,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 3.5112589000000005,
+      "sampledChildWorkingSetBytes": 180023296
     },
     {
       "label": "consumer 3 verify",
-      "seconds": 0.6133620999999985,
+      "seconds": 0.5994063999999926,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 4 witness",
-      "seconds": 0.06780740000000515
+      "seconds": 0.08821090000000549
     },
     {
       "label": "consumer 4 prove",
-      "seconds": 3.451573199999999,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 3.4160645999999977,
+      "sampledChildWorkingSetBytes": 181895168
     },
     {
       "label": "consumer 4 verify",
-      "seconds": 0.4945127000000066,
+      "seconds": 0.5429928000000073,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 5 witness",
-      "seconds": 0.07304559999999764
+      "seconds": 0.08583809999999358
     },
     {
       "label": "consumer 5 prove",
-      "seconds": 3.4067655999999986,
+      "seconds": 3.5808258999999962,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 5 verify",
-      "seconds": 0.5079833000000071,
+      "seconds": 0.61249549999999,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 6 witness",
-      "seconds": 0.09038709999999264
+      "seconds": 0.10832520000000659
     },
     {
       "label": "consumer 6 prove",
-      "seconds": 3.4363502000000006,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 3.5534620999999897,
+      "sampledChildWorkingSetBytes": 567164928
     },
     {
       "label": "consumer 6 verify",
-      "seconds": 0.49571719999999914,
+      "seconds": 0.5257731999999959,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 7 witness",
-      "seconds": 0.06616359999999986
+      "seconds": 0.07695149999999558
     },
     {
       "label": "consumer 7 prove",
-      "seconds": 3.449573000000004,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 3.599247299999988,
+      "sampledChildWorkingSetBytes": 559550464
     },
     {
       "label": "consumer 7 verify",
-      "seconds": 0.5232122999999992,
+      "seconds": 0.5646278999999922,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 8 witness",
-      "seconds": 0.07601169999998819
+      "seconds": 0.0851926000000094
     },
     {
       "label": "consumer 8 prove",
-      "seconds": 3.4442012000000104,
-      "sampledChildWorkingSetBytes": null
+      "seconds": 4.209253899999982,
+      "sampledChildWorkingSetBytes": 1473265664
     },
     {
       "label": "consumer 8 verify",
-      "seconds": 0.5160279999999912,
+      "seconds": 0.7725513999999967,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 9 witness",
-      "seconds": 0.09099409999999625
+      "seconds": 0.09080449999999837
     },
     {
       "label": "consumer 9 prove",
-      "seconds": 3.574160299999989,
-      "sampledChildWorkingSetBytes": 201420800
+      "seconds": 3.4548193000000027,
+      "sampledChildWorkingSetBytes": 44195840
     },
     {
       "label": "consumer 9 verify",
-      "seconds": 0.6865296999999846,
+      "seconds": 0.5238005999999877,
       "sampledChildWorkingSetBytes": null
     },
     {
       "label": "consumer 10 witness",
-      "seconds": 0.08505100000000675
+      "seconds": 0.08766190000000643
     },
     {
       "label": "consumer 10 prove",
-      "seconds": 3.598575899999996,
-      "sampledChildWorkingSetBytes": 657539072
+      "seconds": 3.4400837000000175,
+      "sampledChildWorkingSetBytes": 16973824
     },
     {
       "label": "consumer 10 verify",
-      "seconds": 0.533806899999996,
+      "seconds": 0.5300755000000063,
       "sampledChildWorkingSetBytes": null
     }
   ]
