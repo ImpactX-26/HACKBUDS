@@ -1,4 +1,4 @@
-# Backend B B4: reproducible local EVM and trusted prover
+# Backend B B4/B5: reproducible local EVM and trusted prover
 
 This is a real Groth16 / Solidity demonstration using fixed **synthetic** evidence,
 ephemeral Ganache development accounts and MockUSDC. It costs ₹0. It is ready for
@@ -40,8 +40,11 @@ ignored `contracts/artifacts/local/session-*/manifest.json`. The live manifest
 contains addresses, ABI file references, roles, chain/domain, protocol profiles,
 29-signal order and setup fingerprints. Ctrl+C stops it and deletes the disposable
 setup/manifest. Do not expose this synthetic unlocked development RPC externally.
-There is no public proof-generation HTTP endpoint. `local:start` leaves the chain
-ready; `local:demo` also initializes the fixture and performs the complete flow.
+There is no public proof-generation HTTP endpoint. `local:start` now initializes
+the B5 synthetic worker/passport and stays callable over private stdin/parent-child
+IPC. Its ready line also reports `integration-bundle.json` with inline ABIs.
+See `contracts/integration/README.md` for backend/SDK calls and Backend A's resolver
+hook. `local:demo` remains the independent B4 complete-flow regression.
 
 ## Callable private boundary
 
