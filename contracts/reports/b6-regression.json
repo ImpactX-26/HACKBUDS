@@ -1,0 +1,73 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "b5Regression": {
+    "command": "npm run integration:test",
+    "passed": 14,
+    "failed": 0,
+    "nodeDurationSeconds": 208.7971036,
+    "inProcessSeconds": 207.6074082,
+    "privateIpcSeconds": 123.20233759999999,
+    "realProofs": 8,
+    "proofMetrics": [
+      {
+        "seconds": 15.381461299999996,
+        "workerMaxRssBytes": 438116352,
+        "workerRssBytes": 393719808
+      },
+      {
+        "seconds": 18.4448891,
+        "workerMaxRssBytes": 426520576,
+        "workerRssBytes": 388886528
+      },
+      {
+        "seconds": 14.120263199999986,
+        "workerMaxRssBytes": 422785024,
+        "workerRssBytes": 393703424
+      },
+      {
+        "seconds": 14.181421700000007,
+        "workerMaxRssBytes": 427843584,
+        "workerRssBytes": 392929280
+      },
+      {
+        "seconds": 13.605833399999973,
+        "workerMaxRssBytes": 403165184,
+        "workerRssBytes": 394424320
+      },
+      {
+        "seconds": 13.521579299999983,
+        "workerMaxRssBytes": 394133504,
+        "workerRssBytes": 394137600
+      },
+      {
+        "seconds": 15.636390200000001,
+        "workerMaxRssBytes": 438124544,
+        "workerRssBytes": 393809920
+      },
+      {
+        "seconds": 18.608811199999998,
+        "workerMaxRssBytes": 438370304,
+        "workerRssBytes": 397701120
+      }
+    ],
+    "cleanupVerified": true
+  },
+  "existingContractRegression": {
+    "command": "node --test test/GigPassport.test.mjs test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs test/trusted-prover-b4.test.mjs test/local-deployment-b4.test.mjs",
+    "passed": 72,
+    "failed": 0,
+    "nodeDurationSeconds": 51.3264056
+  },
+  "strictTypes": {
+    "commands": [
+      "npm run integration:types",
+      "npm run prover:types"
+    ],
+    "passed": 2
+  },
+  "finalValidationTotal": {
+    "nodeTests": 96,
+    "realProofs": 10
+  }
+}

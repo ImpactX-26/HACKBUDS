@@ -206,3 +206,7 @@ private persistent controller, claim/borrow/repay, honest FAIL, expiry/freshness
 altered evidence/public signals, replay and recovery. Reports contain only public
 bundles, test names and timings under `contracts/reports/b5-*.json`.
 No frontend work, paid infrastructure or public-network transactions are involved.
+
+For B6's actual-A-runtime local harness, see `contracts/integration/BACKEND_A_LOCAL.md`.
+It reconstructs from A's authenticated Mock FIP instead of B fixture arrays. B5's
+persistent controller remains unchanged; B6 does not connect a separate A HTTP service.

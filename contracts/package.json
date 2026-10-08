@@ -12,7 +12,10 @@
     "local:start": "node local/start.mjs",
     "local:demo": "node local/demo.mjs",
     "integration:test": "node --test test/integration-b5.test.mjs test/session-ipc-b5.test.mjs",
-    "integration:types": "node ../circuits/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/integration-b5-types.mts"
+    "integration:types": "node ../circuits/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/integration-b5-types.mts",
+    "integration:a:prepare": "node integration/backend-a-source.mjs",
+    "integration:a:test": "node --test test/backend-a-b6.test.mjs",
+    "integration:a:demo": "node --test test/backend-a-b6.test.mjs"
   },
   "devDependencies": {
     "@openzeppelin/contracts": "5.4.0",
