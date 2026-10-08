@@ -97,6 +97,13 @@ The following sections are **PROPOSED / REVIEW ONLY** and are not approved proto
   - Persists minimal authorization records `{ signature, nonce, walletAddress, action, timestamp, consumedAt, requestId, requestFingerprint }` without any monetary cost or external database dependencies.
   - Invariant: Zero financial evidence, transaction data, or snapshots are stored.
   - Survives process restarts and synchronizes safely across separate operating system processes on the same host.
+- **Live-Owner Lock Protection & Verified Dead-Owner Recovery:**
+  - **Live-Owner Invariant:** Elapsed time alone CANNOT invalidate or evict a live owner's lock. Even if an owner process pauses beyond 10 seconds (e.g. GC pause, OS scheduling, or I/O delay), contending processes inspect the lock metadata, verify that the owner PID is alive in the OS process table via `isProcessAlive(pid)`, and strictly refuse to evict or delete the lock.
+  - **Dead-Owner Recovery:** If and only if the owner PID is verified dead in the OS process table (`process.kill(pid, 0)` returns `ESRCH`), the abandoned lockfile is safely recovered and unlinked after verifying that the file still matches the dead owner's token.
+  - **Ownership Verification on Release:** `releaseLock()` strictly parses the lockfile and verifies that both the unique lock token and process PID match the releasing instance. It never deletes another owner's lock if the lock was usurped or replaced.
+  - **Pre-Persistence Lock Assertion:** `assertLockHeld()` runs immediately before disk persistence, failing closed with `FileReplayStoreLockLostError` if the lock was missing or usurped while in-flight, preventing split-brain persistence.
+  - **Fail-Closed Contention Timeouts:** If a contender's timeout expires while a live owner holds the lock, the contender fails closed with `FileReplayStoreLockTimeoutError` without consuming the authorization.
+  - **Manual Crash Recovery:** Documented utility `FileReplayStore.recoverAbandonedLock(filePath)` safely clears orphaned locks only after verifying that the owner PID is dead. If an orphaned lock from a hard machine crash or container recreation with recycled PIDs prevents acquisition, operators can inspect `${filePath}.lock` (recording `pid`, `token`, `createdAt`, `hostname`) and manually remove the lock file.
 - **Fail-Closed on Corrupted, Malformed, or Unreadable Storage:**
   - `syncFromDisk()` strictly validates existing storage: malformed JSON, empty/whitespace files, non-array roots, or invalid record schemas immediately throw `FileReplayStoreCorruptedError`.
   - Errors are never swallowed; the store fails closed on both initialization and subsequent calls (`consume`, `isConsumed`), preventing acceptance of already-consumed authorizations when storage integrity is compromised.
@@ -104,9 +111,10 @@ The following sections are **PROPOSED / REVIEW ONLY** and are not approved proto
   - Consumed records are retained until `Math.max(record.timestamp, record.consumedAt) + maxAgeSeconds`.
   - Authorizations signed up to 60 seconds ahead (within allowed clock-skew) remain protected against replay throughout their entire cryptographic validity period (tested at `T + 301s` and the exact `T + 360s` validity boundary).
   - Records are pruned only at `T + 361s` when the signature can no longer pass `verifyWorkerAuthorization`.
-- **Unresolved Deployment Replay Protection (Reported Limitation):**
-  - While `FileReplayStore` provides zero-cost persistence, corruption resilience, and process-level mutual exclusion on a single host, horizontal scaling across distributed multi-container or multi-region cloud production clusters requires shared distributed infrastructure (e.g. Redis cluster with atomic Lua scripts or PostgreSQL transaction WAL).
-  - Cross-host distributed cluster replay protection remains an **UNRESOLVED operational requirement** pending deployment infrastructure provisioning.
+- **Operational Recovery Limitations (Reported Boundary):**
+  - **Single-Host Limitation:** `isProcessAlive(pid)` checks the local host OS process table. In multi-container, serverless, or multi-host Kubernetes topologies sharing a network volume (NFS/EFS), POSIX PID inspection cannot verify process liveness across separate container namespaces or virtual machines.
+  - **PID Recycling:** On POSIX kernels with low PID wrap-around limits, an extremely delayed dead-owner recovery (>several hours after crash) could theoretically collide with a recycled PID. Timestamp and token matching mitigate this on active hosts.
+  - **Distributed Cloud Infrastructure Requirement:** Multi-host horizontal scaling requires distributed mutual exclusion and replay tracking (e.g. Redis Redlock with atomic Lua scripts or PostgreSQL transaction WAL). This remains an **UNRESOLVED operational requirement** pending shared infrastructure provisioning.
 
 #### Reconciliation of Reconstruction Retry Semantics
 - **CURRENT BEHAVIOR (ENFORCED IN CODE):**

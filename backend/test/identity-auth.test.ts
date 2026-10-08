@@ -18,7 +18,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore, FileReplayStore, FileReplayStoreCorruptedError } from '../src/identity/wallet-auth.js';
+import {
+  signWorkerAuthorization,
+  verifyWorkerAuthorization,
+  ReplayProtectionRegistry,
+  MemoryReplayStore,
+  FileReplayStore,
+  FileReplayStoreCorruptedError,
+  FileReplayStoreLockTimeoutError,
+  FileReplayStoreLockLostError,
+  isProcessAlive,
+  parseLockContent,
+} from '../src/identity/wallet-auth.js';
 import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
@@ -948,6 +959,292 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
       const prunedFile361 = fileStore.pruneExpired(300, time361);
       assert.strictEqual(prunedMem361, 1, 'Memory store must prune expired record at T + 361s');
       assert.strictEqual(prunedFile361, 1, 'File store must prune expired record at T + 361s');
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  });
+
+  it('MUST PREVENT DUPLICATE ACCEPTANCE when lock owner pauses beyond 10 seconds (live owner lock protection)', { timeout: 45000 }, async () => {
+    const tempFile = path.join(
+      os.tmpdir(),
+      `gigvault-live-pause-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+    const lockFile = `${tempFile}.lock`;
+    const signalFile = path.join(
+      os.tmpdir(),
+      `gigvault-signal-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+
+    try {
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_LIVE_PAUSE_1',
+          expectedPassportId: 991,
+          nonce: 'nonce-live-pause-regression',
+        },
+        rameshWallet
+      );
+
+      // Process A: Holds lock and pauses for 11,000ms immediately before persistence
+      const childA = spawn(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          '--input-type=module',
+          '-e',
+          `
+          import { FileReplayStore } from './src/identity/wallet-auth.js';
+          const store = new FileReplayStore(process.env.REPLAY_PATH);
+          const auth = JSON.parse(process.env.AUTH_DATA);
+          try {
+            store.consume(auth);
+            process.stdout.write('PROCESS_A_ACCEPTED\\n');
+            process.exit(0);
+          } catch (err) {
+            process.stderr.write(err.message || 'unknown error');
+            process.exit(1);
+          }
+          `,
+        ],
+        {
+          env: {
+            ...process.env,
+            REPLAY_PATH: tempFile,
+            AUTH_DATA: JSON.stringify(auth),
+            GIGVAULT_TEST_PAUSE_BEFORE_PERSIST_MS: '11000',
+            GIGVAULT_TEST_PAUSE_SIGNAL_FILE: signalFile,
+          },
+        }
+      );
+
+      let stdoutA = '';
+      let stderrA = '';
+      childA.stdout.on('data', (d) => { stdoutA += d.toString(); });
+      childA.stderr.on('data', (d) => { stderrA += d.toString(); });
+
+      // Wait for Process A to acquire lock and signal pause before persist
+      const pauseSignalWaitStart = Date.now();
+      let signaled = false;
+      while (Date.now() - pauseSignalWaitStart < 8000) {
+        if (fs.existsSync(signalFile) && fs.existsSync(lockFile)) {
+          signaled = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      assert.strictEqual(signaled, true, 'Process A must acquire lock and signal pause before persist');
+
+      const lockStats = fs.statSync(lockFile);
+      const lockCreatedTime = lockStats.mtimeMs;
+
+      // Verify Process A is active in OS process table
+      assert.strictEqual(isProcessAlive(childA.pid!), true, 'Process A must be alive');
+
+      // Wait until Process A has held the lock for over 10 seconds (> 10,250 ms)
+      // In the vulnerable code, age-only eviction would delete A's lock after 10s.
+      while (Date.now() - lockCreatedTime < 10250) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      // Lock is now > 10 seconds old while Process A is STILL ALIVE and PAUSED!
+      const ageMs = Date.now() - lockCreatedTime;
+      assert.ok(ageMs > 10000, `Lock file age must be > 10,000ms (was ${ageMs}ms)`);
+      assert.strictEqual(isProcessAlive(childA.pid!), true, 'Process A must still be alive and holding lock');
+
+      // Now launch Contender Process B with the exact same authorization.
+      // Contender has lock timeout long enough to wait for A to complete or fail closed.
+      // In both cases, Contender MUST NOT consume the same authorization!
+      const childB = spawn(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          '--input-type=module',
+          '-e',
+          `
+          import { FileReplayStore } from './src/identity/wallet-auth.js';
+          const store = new FileReplayStore(process.env.REPLAY_PATH);
+          const auth = JSON.parse(process.env.AUTH_DATA);
+          try {
+            store.consume(auth);
+            process.stdout.write('PROCESS_B_ACCEPTED\\n');
+            process.exit(0);
+          } catch (err) {
+            process.stderr.write(err.message || 'unknown error');
+            process.exit(1);
+          }
+          `,
+        ],
+        {
+          env: {
+            ...process.env,
+            REPLAY_PATH: tempFile,
+            AUTH_DATA: JSON.stringify(auth),
+            GIGVAULT_LOCK_TIMEOUT_MS: '4000',
+          },
+        }
+      );
+
+      let stdoutB = '';
+      let stderrB = '';
+      childB.stdout.on('data', (d) => { stdoutB += d.toString(); });
+      childB.stderr.on('data', (d) => { stderrB += d.toString(); });
+
+      const [codeA, codeB] = await Promise.all([
+        new Promise<number | null>((resolve) => childA.on('close', resolve)),
+        new Promise<number | null>((resolve) => childB.on('close', resolve)),
+      ]);
+
+      // Exactly ONE process must succeed (code 0) and contender must NOT succeed (code 1)
+      assert.strictEqual(codeA, 0, `Process A must succeed after pause, got code ${codeA}, stderr: ${stderrA}`);
+      assert.strictEqual(codeB, 1, `Process B must fail, got code ${codeB}, stdout: ${stdoutB}`);
+
+      assert.ok(
+        stdoutA.includes('PROCESS_A_ACCEPTED'),
+        'Process A must accept authorization upon resuming'
+      );
+      assert.ok(
+        !stdoutB.includes('PROCESS_B_ACCEPTED'),
+        'Contender Process B must NEVER accept the same authorization'
+      );
+      assert.ok(
+        stderrB.includes('ReplayAttackDetected') || stderrB.includes('FileReplayStoreLockTimeout'),
+        `Process B must fail with ReplayAttackDetected or lock timeout, got: ${stderrB}`
+      );
+
+      // Verify persistence on disk: auth was consumed exactly once
+      const verifyStore = new FileReplayStore(tempFile);
+      assert.strictEqual(verifyStore.isConsumed(auth), true);
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+      if (fs.existsSync(signalFile)) fs.unlinkSync(signalFile);
+    }
+  });
+
+  it('MUST SAFELY RECOVER lock left by dead owner process (dead-owner recovery)', async () => {
+    const tempFile = path.join(
+      os.tmpdir(),
+      `gigvault-dead-owner-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const deadPid = 99999999; // Non-existent PID
+      assert.strictEqual(isProcessAlive(deadPid), false, 'deadPid must be verified dead');
+
+      // Create an orphaned lockfile belonging to the dead process
+      fs.writeFileSync(
+        lockFile,
+        JSON.stringify({
+          pid: deadPid,
+          token: 'dead-owner-token-uuid',
+          createdAt: Date.now() - 30000,
+          hostname: os.hostname(),
+        }),
+        'utf8'
+      );
+
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: arjunWallet.address,
+          consentId: 'CONSENT_DEAD_OWNER_1',
+          expectedPassportId: 992,
+        },
+        arjunWallet
+      );
+
+      // New process should detect the dead PID and safely recover the lock
+      const store = new FileReplayStore(tempFile);
+      const res = store.consume(auth);
+      assert.strictEqual(res.isConsumed, false);
+      assert.strictEqual(store.isConsumed(auth), true);
+
+      // Test static recoverAbandonedLock utility
+      assert.strictEqual(FileReplayStore.recoverAbandonedLock(tempFile), false, 'No lock file should remain to recover');
+
+      // Now create another orphaned lockfile with dead PID
+      fs.writeFileSync(
+        lockFile,
+        JSON.stringify({ pid: deadPid, token: 'token-2', createdAt: Date.now() - 5000 }),
+        'utf8'
+      );
+      assert.strictEqual(FileReplayStore.recoverAbandonedLock(tempFile), true, 'Must safely recover dead-owner lock');
+      assert.strictEqual(fs.existsSync(lockFile), false, 'Lockfile must be unlinked after dead-owner recovery');
+
+      // Verify that recoverAbandonedLock strictly refuses to remove a LIVE owner lock
+      fs.writeFileSync(
+        lockFile,
+        JSON.stringify({ pid: process.pid, token: 'token-live', createdAt: Date.now() }),
+        'utf8'
+      );
+      assert.strictEqual(FileReplayStore.recoverAbandonedLock(tempFile), false, 'Must REFUSE to remove live owner lock');
+      assert.strictEqual(fs.existsSync(lockFile), true, 'Live owner lockfile must remain intact');
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  });
+
+  it('MUST NEVER DELETE another owner lock on release and FAIL CLOSED if lock was usurped', async () => {
+    const tempFile = path.join(
+      os.tmpdir(),
+      `gigvault-lock-verify-${Date.now()}-${Math.random().toString(36).slice(2)}.json`
+    );
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_USURPED_1',
+          expectedPassportId: 993,
+        },
+        rameshWallet
+      );
+
+      const store = new FileReplayStore(tempFile);
+
+      // Simulate lock usurped or replaced by another owner during in-flight operation
+      // Write another owner's lock to disk
+      const otherOwnerPid = process.pid;
+      const otherOwnerToken = 'other-owner-token-xyz';
+      fs.writeFileSync(
+        lockFile,
+        JSON.stringify({ pid: otherOwnerPid, token: otherOwnerToken, createdAt: Date.now() }),
+        'utf8'
+      );
+
+      // Verify that releaseLock with mismatched token NEVER deletes the other owner's lock
+      (store as any).currentLockToken = 'my-old-token-abc';
+      (store as any).releaseLock();
+
+      // The other owner's lock must STILL exist!
+      assert.strictEqual(fs.existsSync(lockFile), true, 'Must NEVER delete another owner lock');
+      const raw = fs.readFileSync(lockFile, 'utf8');
+      const meta = parseLockContent(raw);
+      assert.strictEqual(meta?.token, otherOwnerToken, 'Other owner lock content must be unchanged');
+
+      // Verify assertLockHeld fails closed if lock token is missing
+      assert.throws(
+        () => (store as any).assertLockHeld(),
+        (err: any) => err instanceof FileReplayStoreLockLostError && err.message.includes('no active lock token'),
+        'Must fail closed if active lock token is missing'
+      );
+
+      // Verify assertLockHeld fails closed if lock token does not match
+      (store as any).currentLockToken = 'my-old-token-abc';
+      assert.throws(
+        () => (store as any).assertLockHeld(),
+        (err: any) => err instanceof FileReplayStoreLockLostError && err.message.includes('usurped'),
+        'Must fail closed with FileReplayStoreLockLostError if lock is usurped'
+      );
     } finally {
       if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
       if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);

@@ -13,6 +13,7 @@
 import { ethers } from 'ethers';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { WorkerActionType, WorkerWalletAuthorization } from './types.js';
 
@@ -85,6 +86,82 @@ export class FileReplayStoreCorruptedError extends Error {
     super(message);
     this.name = 'FileReplayStoreCorruptedError';
   }
+}
+
+export class FileReplayStoreLockTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FileReplayStoreLockTimeoutError';
+  }
+}
+
+export class FileReplayStoreLockLostError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FileReplayStoreLockLostError';
+  }
+}
+
+export interface LockFileMetadata {
+  pid: number;
+  token?: string;
+  createdAt: number;
+  hostname?: string;
+}
+
+/**
+ * Safely verify whether a process PID exists in the OS process table.
+ * Uses POSIX kill(pid, 0) test signal without terminating or altering process.
+ */
+export function isProcessAlive(pid: number): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    if (err.code === 'ESRCH') {
+      return false; // Process does not exist (dead)
+    }
+    if (err.code === 'EPERM') {
+      return true; // Process exists but owned by different user (alive)
+    }
+    return true; // Conservative fail-safe assume alive
+  }
+}
+
+/**
+ * Parse lockfile payload supporting structured JSON and legacy PID:createdAt format.
+ */
+export function parseLockContent(content: string): LockFileMetadata | null {
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('{')) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (typeof data.pid === 'number' && Number.isInteger(data.pid) && typeof data.createdAt === 'number') {
+        return {
+          pid: data.pid,
+          token: typeof data.token === 'string' ? data.token : undefined,
+          createdAt: data.createdAt,
+          hostname: typeof data.hostname === 'string' ? data.hostname : undefined,
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+  const parts = trimmed.split(':');
+  if (parts.length >= 2) {
+    const pid = parseInt(parts[0], 10);
+    const createdAt = parseInt(parts[1], 10);
+    const token = parts[2] ? parts[2].trim() : undefined;
+    if (Number.isInteger(pid) && Number.isInteger(createdAt)) {
+      return { pid, createdAt, token };
+    }
+  }
+  return null;
 }
 
 export class MemoryReplayStore implements IReplayStore {
@@ -166,6 +243,12 @@ export class MemoryReplayStore implements IReplayStore {
   }
 }
 
+export interface FileReplayStoreOptions {
+  lockTimeoutMs?: number;
+  lockPollIntervalMs?: number;
+  pauseBeforePersistMs?: number;
+}
+
 /**
  * Zero-cost filesystem-backed replay store with cross-process exclusive locking.
  * Persists authorization records across actual process restarts and separate OS processes
@@ -173,18 +256,31 @@ export class MemoryReplayStore implements IReplayStore {
  * 
  * Guarantees:
  * 1. Mutual exclusion: exactly one of concurrent contending processes can consume a signature or nonce.
- * 2. Fail closed: throws FileReplayStoreCorruptedError on corrupted, malformed, or unreadable storage.
- * 3. Freshness alignment: retains records until the authorization can no longer pass freshness checks.
- * 4. Zero financial evidence: never stores raw financial records, account balances, or evidence snapshots.
+ * 2. Live-owner lock protection: elapsed time alone CANNOT invalidate or evict a live owner's lock.
+ * 3. Dead-owner recovery: safely verifies dead process status before clearing abandoned locks.
+ * 4. Lock verification on release: release strictly verifies ownership and never unlinks another owner's lock.
+ * 5. Pre-persistence assertion: verifies lock is still held immediately before write to prevent split-brain acceptance.
+ * 6. Fail closed: throws FileReplayStoreCorruptedError on corrupted storage, and FileReplayStoreLockTimeoutError on contention timeout.
+ * 7. Freshness alignment: retains records until the authorization can no longer pass freshness checks.
+ * 8. Zero financial evidence: never stores raw financial records, account balances, or evidence snapshots.
  */
 export class FileReplayStore implements IReplayStore {
   private filePath: string;
   private recordsBySignature = new Map<string, ConsumedAuthRecord>();
   private recordsByNonce = new Map<string, ConsumedAuthRecord>();
   private lockDepth = 0;
+  private currentLockToken?: string;
+  private lockTimeoutMs: number;
+  private lockPollIntervalMs: number;
+  private pauseBeforePersistMs: number;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, options?: FileReplayStoreOptions) {
     this.filePath = filePath;
+    this.lockTimeoutMs = options?.lockTimeoutMs ??
+      (process.env.GIGVAULT_LOCK_TIMEOUT_MS ? parseInt(process.env.GIGVAULT_LOCK_TIMEOUT_MS, 10) : 5000);
+    this.lockPollIntervalMs = options?.lockPollIntervalMs ?? 5;
+    this.pauseBeforePersistMs = options?.pauseBeforePersistMs ??
+      (process.env.GIGVAULT_TEST_PAUSE_BEFORE_PERSIST_MS ? parseInt(process.env.GIGVAULT_TEST_PAUSE_BEFORE_PERSIST_MS, 10) : 0);
     this.withLock(() => {
       this.syncFromDisk();
     });
@@ -194,40 +290,109 @@ export class FileReplayStore implements IReplayStore {
     return this.filePath;
   }
 
-  private acquireLock(timeoutMs = 5000, pollIntervalMs = 5): void {
+  public getCurrentLockToken(): string | undefined {
+    return this.currentLockToken;
+  }
+
+  /**
+   * Safely inspects and clears an orphaned lock file if and only if the owner process is dead.
+   * If the owner process is live, this method strictly refuses to remove the lock and returns false.
+   */
+  public static recoverAbandonedLock(filePath: string): boolean {
+    const lockPath = `${filePath}.lock`;
+    if (!fs.existsSync(lockPath)) return false;
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf8');
+      const meta = parseLockContent(raw);
+      if (meta && !isProcessAlive(meta.pid)) {
+        fs.unlinkSync(lockPath);
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }
+
+  private acquireLock(timeoutMs = this.lockTimeoutMs, pollIntervalMs = this.lockPollIntervalMs): void {
     const lockPath = `${this.filePath}.lock`;
     const dir = path.dirname(lockPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     const start = Date.now();
+    const token = crypto.randomUUID();
+
     while (Date.now() - start < timeoutMs) {
       try {
         const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR);
         try {
-          fs.writeSync(fd, `${process.pid}:${Date.now()}`);
+          const meta: LockFileMetadata = {
+            pid: process.pid,
+            token,
+            createdAt: Date.now(),
+            hostname: os.hostname(),
+          };
+          fs.writeSync(fd, JSON.stringify(meta), 0, 'utf8');
+          fs.fsyncSync(fd);
         } finally {
           fs.closeSync(fd);
         }
+        this.currentLockToken = token;
         return;
       } catch (err: any) {
         if (err.code === 'EEXIST') {
-          // Check for stale lock (> 10 seconds old)
+          // Lock is held by an existing process
+          let lockMeta: LockFileMetadata | null = null;
+          let fileReadOk = false;
           try {
-            const stats = fs.statSync(lockPath);
-            if (Date.now() - stats.mtimeMs > 10000) {
+            const raw = fs.readFileSync(lockPath, 'utf8');
+            fileReadOk = true;
+            lockMeta = parseLockContent(raw);
+          } catch {
+            // Lock may have been released or unlinked between openSync and readFileSync
+          }
+
+          if (fileReadOk && lockMeta) {
+            if (!isProcessAlive(lockMeta.pid)) {
+              // Dead-owner recovery:
+              // The process that created the lock is no longer alive in the OS process table.
+              // Safely verify it hasn't been replaced before removing.
               try {
-                fs.unlinkSync(lockPath);
+                const currentRaw = fs.readFileSync(lockPath, 'utf8');
+                const currentMeta = parseLockContent(currentRaw);
+                if (
+                  currentMeta &&
+                  currentMeta.pid === lockMeta.pid &&
+                  currentMeta.token === lockMeta.token
+                ) {
+                  fs.unlinkSync(lockPath);
+                }
               } catch {
-                // ignore
+                // Ignore race if unlinked by another contender
               }
               continue;
+            } else {
+              // LIVE OWNER:
+              // Invariant: elapsed time alone CANNOT invalidate a live owner's lock.
+              // Never evict or delete a live owner's lock.
+              // Contender continues polling until lock is released or timeout expires.
             }
-          } catch {
-            // lock may have been released in between
-            continue;
+          } else if (fileReadOk && !lockMeta) {
+            // Lock exists but cannot be parsed.
+            // If abandoned for > 10s without valid PID metadata, allow recovery.
+            try {
+              const stats = fs.statSync(lockPath);
+              if (Date.now() - stats.mtimeMs > 10000) {
+                fs.unlinkSync(lockPath);
+                continue;
+              }
+            } catch {
+              // ignore
+            }
           }
-          // Sleep briefly before retrying
+
+          // Sleep briefly before polling again
           try {
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollIntervalMs);
           } catch {
@@ -239,17 +404,65 @@ export class FileReplayStore implements IReplayStore {
         }
       }
     }
-    throw new Error(`FileReplayStoreLockTimeout: failed to acquire exclusive lock on ${lockPath} after ${timeoutMs}ms`);
+
+    // Fail closed on lock timeout
+    let holderInfo = 'unknown';
+    try {
+      const raw = fs.readFileSync(lockPath, 'utf8');
+      const meta = parseLockContent(raw);
+      if (meta) {
+        holderInfo = `pid ${meta.pid}, token ${meta.token ?? 'none'}, active=${isProcessAlive(meta.pid)}`;
+      }
+    } catch {
+      // ignore
+    }
+    throw new FileReplayStoreLockTimeoutError(
+      `FileReplayStoreLockTimeout: failed to acquire exclusive lock on ${lockPath} after ${timeoutMs}ms (lock held by ${holderInfo})`
+    );
   }
 
   private releaseLock(): void {
+    const tokenToRelease = this.currentLockToken;
+    this.currentLockToken = undefined;
+    if (!tokenToRelease) {
+      return;
+    }
     const lockPath = `${this.filePath}.lock`;
     try {
-      if (fs.existsSync(lockPath)) {
+      if (!fs.existsSync(lockPath)) {
+        return;
+      }
+      const raw = fs.readFileSync(lockPath, 'utf8');
+      const meta = parseLockContent(raw);
+      // Strictly verify ownership: only delete if the lock file still belongs to our token and PID!
+      if (meta && meta.token === tokenToRelease && meta.pid === process.pid) {
         fs.unlinkSync(lockPath);
+      } else {
+        // NEVER delete another owner's lock!
       }
     } catch {
       // Ignore if already deleted
+    }
+  }
+
+  private assertLockHeld(): void {
+    if (!this.currentLockToken) {
+      throw new FileReplayStoreLockLostError('Cannot persist: no active lock token');
+    }
+    const lockPath = `${this.filePath}.lock`;
+    let raw: string;
+    try {
+      raw = fs.readFileSync(lockPath, 'utf8');
+    } catch (err: any) {
+      throw new FileReplayStoreLockLostError(
+        `Cannot persist: lockfile ${lockPath} no longer exists or cannot be read: ${err.message}`
+      );
+    }
+    const meta = parseLockContent(raw);
+    if (!meta || meta.token !== this.currentLockToken || meta.pid !== process.pid) {
+      throw new FileReplayStoreLockLostError(
+        `Cannot persist: lock on ${lockPath} was lost or usurped (expected token ${this.currentLockToken}, found ${meta?.token ?? 'none'} for pid ${meta?.pid ?? 'unknown'})`
+      );
     }
   }
 
@@ -371,6 +584,7 @@ export class FileReplayStore implements IReplayStore {
   }
 
   private persistToDisk(): void {
+    this.assertLockHeld();
     try {
       const dir = path.dirname(this.filePath);
       if (!fs.existsSync(dir)) {
@@ -381,6 +595,9 @@ export class FileReplayStore implements IReplayStore {
       fs.writeFileSync(tmpPath, JSON.stringify(allRecords, null, 2), 'utf8');
       fs.renameSync(tmpPath, this.filePath);
     } catch (err) {
+      if (err instanceof FileReplayStoreLockLostError) {
+        throw err;
+      }
       throw new Error(
         `FileReplayStorePersistenceError: failed to persist authorization state to disk: ${(err as Error).message}`
       );
@@ -451,6 +668,27 @@ export class FileReplayStore implements IReplayStore {
       this.recordsBySignature.set(sigKey, record);
       if (auth.nonce) {
         this.recordsByNonce.set(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`, record);
+      }
+
+      if (this.pauseBeforePersistMs > 0) {
+        const signalPath = process.env.GIGVAULT_TEST_PAUSE_SIGNAL_FILE;
+        if (signalPath) {
+          try {
+            fs.writeFileSync(
+              signalPath,
+              JSON.stringify({ pid: process.pid, pausedAt: Date.now() }),
+              'utf8'
+            );
+          } catch {
+            // ignore
+          }
+        }
+        try {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, this.pauseBeforePersistMs);
+        } catch {
+          const spinEnd = Date.now() + this.pauseBeforePersistMs;
+          while (Date.now() < spinEnd) {}
+        }
       }
 
       this.persistToDisk();
