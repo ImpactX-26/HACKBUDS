@@ -24,7 +24,11 @@ export * from './evidence/prover-boundary.js';
 export * from './identity/types.js';
 export * from './identity/mock-idp.js';
 export * from './identity/wallet-auth.js';
+export * from './identity/phone/index.js';
+export * from './identity/aadhaar/index.js';
+export * from './identity/onboarding/index.js';
 
 export * from './http/fip-app.js';
 export * from './http/attestation-app.js';
+export * from './http/onboarding-app.js';
 export * from './http/unified-app.js';

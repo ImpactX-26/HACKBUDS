@@ -9,7 +9,8 @@
     "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "demo": "node --import tsx src/demo/local-evidence-demo.ts"
+    "demo": "node --import tsx src/demo/local-evidence-demo.ts",
+    "demo:onboarding": "node --import tsx src/demo/onboarding-demo.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "ethers": "^6.17.0",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "snarkjs": "^0.7.6"
   }
 }

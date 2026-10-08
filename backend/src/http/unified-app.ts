@@ -9,6 +9,7 @@
 import express, { type Express } from 'express';
 import { createFipApp } from './fip-app.js';
 import { createAttestationApp } from './attestation-app.js';
+import { createOnboardingApp } from './onboarding-app.js';
 import { defaultFipStorage, MockFIPStorage } from '../fip/storage.js';
 import { ConsentService } from '../fip/consent-service.js';
 import { MockFIPService } from '../fip/fip-service.js';
@@ -18,6 +19,10 @@ import type { IEvidenceCommitmentAdapter } from '../evidence/commitment-adapter.
 import type { IGigPassportClient } from '../evidence/passport-client.js';
 import type { ITrustedProverAdapter } from '../evidence/prover-boundary.js';
 import type { AttestationService } from '../evidence/attestation-service.js';
+import { OnboardingSessionService } from '../identity/onboarding/session-service.js';
+import { MockPhoneVerificationProvider } from '../identity/phone/mock-provider.js';
+import { MockAadhaarVerifier } from '../identity/aadhaar/mock-verifier.js';
+import type { IPhoneVerificationProvider } from '../identity/phone/types.js';
 
 export interface UnifiedAppOptions {
   storage?: MockFIPStorage;
@@ -32,6 +37,9 @@ export interface UnifiedAppOptions {
   proverAdapter?: ITrustedProverAdapter;
   attestationService?: AttestationService;
   adminApiKey?: string;
+  onboardingService?: OnboardingSessionService;
+  phoneProvider?: IPhoneVerificationProvider;
+  allowDevTestRetrieval?: boolean;
 }
 
 export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
@@ -67,6 +75,22 @@ export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
     adminApiKey: options.adminApiKey,
   });
   app.use('/', attestationApp);
+
+  // Mount Onboarding app
+  const phoneProvider =
+    options.phoneProvider ||
+    new MockPhoneVerificationProvider({ allowDevTestRetrieval: options.allowDevTestRetrieval ?? false });
+  const onboardingService =
+    options.onboardingService ||
+    new OnboardingSessionService({
+      phoneProvider,
+      mockAadhaarVerifier: new MockAadhaarVerifier(idp),
+    });
+  const onboardingApp = createOnboardingApp({
+    onboardingService,
+    allowDevTestRetrieval: options.allowDevTestRetrieval,
+  });
+  app.use('/', onboardingApp);
 
   return app;
 }
