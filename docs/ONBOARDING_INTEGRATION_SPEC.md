@@ -256,17 +256,30 @@ TWILIO_ENABLED=true
 
 ---
 
-## 6. Real Anon Aadhaar Integration & Technical Limitations
+## 6. Real Anon Aadhaar Integration & Trust-Boundary Corrections
 
 ### Verifier Implementation (`RealAnonAadhaarVerifier`)
-1. Uses `snarkjs.groth16.verify` on trusted server side.
-2. Accepts `groth16Proof` and public signals.
-3. Checks `pubkeyHash` against trusted UIDAI RSA public key hashes (including Anon Aadhaar test/staging key `153344406208579485121408801822606821217596075402008436573802272506162804618`).
-4. **Signal Binding Check:** Verifies that the public input `signal` matches `BigInt(walletAddress).toString()` or the session challenge digest. This mathematically prevents proof theft or replay across different wallets!
+1. **Genuine Server-Side SnarkJS Verification:** Executes `snarkjs.groth16.verify` against verified public signals and Groth16 proof.
+2. **Fail-Closed Staging Key Policy:** Trusted issuer keys fail closed by default. Staging/test public key hashes (such as `153344406208579485121408801822606821217596075402008436573802272506162804618`) require explicit test-only configuration (`allowTestKeys: true`) and are **never silently trusted** in genuine production mode.
+3. **Canonical Circuit Signal Schema & Ordering (Anon Aadhaar v2):**
+   - Signal index 0: `nullifier`
+   - Signal index 1: `pubkeyHash`
+   - Signal index 2: `nullifierSeed`
+   - Signal index 3: `signal`
+   - Signal index 4: `timestamp`
+   - Verified output fields are extracted strictly from the verified public signals array.
+   - Any inconsistency between top-level payload fields and `publicSignals` array is strictly rejected with `AnonAadhaarPublicSignalMismatchError`.
+4. **Session-Bound Proof Authorization (Replay Prevention):**
+   - The verifier **strictly rejects wallet-only binding** (`BigInt(walletAddress).toString()`) as an insecure substitute for session-specific proof authorization.
+   - Requires supported session-bound signal construction: `deriveAnonAadhaarSessionSignal(sessionId, challengeNonce, walletAddress)` reduced modulo the BN254 scalar field order `r`, or single-use session challenge scalar.
+5. **Truth in Production Readiness (`NOT_YET_VERIFIED` Status):**
+   - Production verification keys and UIDAI RSA trust roots must be officially pinned; production keys are never invented or guessed.
+   - Unless genuine production keys and official vkey are explicitly configured, real verification status is honestly reported as `'NOT_YET_VERIFIED'` via `getVerificationStatus()`.
 
 ### Documented Upstream Protocol Limitations
 1. **UIDAI RSA Key Rotations:** UIDAI periodically rotates RSA 2048 signing keys. A hardcoded key hash list requires periodic updates or verifiable trust-registry sync.
-2. **Offline Data Boundary:** An offline Anon Aadhaar proof does not verify bank account ownership. In GigVault, connecting a real Anon Aadhaar proof to synthetic personas (e.g. Ramesh) is rejected by `OnboardingAttestationAdapter` with `UnsupportedIdentityBridgeError`. Real-user banking requires an authenticated FIP with Aadhaar e-KYC account binding.
+2. **Production Groth16 Artifact Distribution:** Full production Anon Aadhaar zkey artifacts are large (~100MB+) and require out-of-band provisioning. Genuine production verification remains `NOT_YET_VERIFIED` until production artifacts are deployed.
+3. **Offline Data Boundary:** An offline Anon Aadhaar proof does not verify bank account ownership. In GigVault, connecting a real Anon Aadhaar proof to synthetic personas (e.g. Ramesh) is rejected by `OnboardingAttestationAdapter` with `UnsupportedIdentityBridgeError`. Real-user banking requires an authenticated FIP with Aadhaar e-KYC account binding.
 
 ---
 
@@ -285,7 +298,13 @@ The script will demonstrate:
 4. Mode B Mock Aadhaar assertion verification.
 5. Atomic registry commit.
 6. Downstream FIP consent and 36-month evidence snapshot reconstruction.
-7. 5 adversarial rejection gates (wrong OTP, wrong wallet signature, identity nullifier takeover, attacker-signed IDP key, and mismatched Anon Aadhaar signal).
+7. 6 adversarial rejection gates:
+   - Wrong OTP code
+   - Wallet signature mismatch
+   - Identity nullifier takeover
+   - Untrusted IDP key
+   - Fail-closed default rejecting test pubkey hash
+   - Wallet-only signal binding rejection (requiring session signal)
 
 ---
 
@@ -298,6 +317,6 @@ npm run typecheck
 npm run build
 ```
 
-- **Tests Passing:** 141 tests across 25 suites (0 failures, 0 skipped).
+- **Tests Passing:** 147 tests across 25 suites (0 failures, 0 skipped).
 - **TypeScript:** Strict typecheck passing with 0 errors.
 - **Build:** Clean compilation to `dist/`.

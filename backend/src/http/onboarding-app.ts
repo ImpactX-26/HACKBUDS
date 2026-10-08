@@ -50,6 +50,7 @@ import {
   AnonAadhaarSignalBindingMismatchError,
   AnonAadhaarPubkeyNotTrustedError,
   AnonAadhaarVerificationKeyMissingError,
+  AnonAadhaarPublicSignalMismatchError,
   MockAadhaarAssertionInvalidError,
 } from '../identity/aadhaar/types.js';
 
@@ -123,6 +124,7 @@ export function createOnboardingApp(options: OnboardingAppOptions): Express {
       err instanceof AnonAadhaarSignalBindingMismatchError ||
       err instanceof AnonAadhaarPubkeyNotTrustedError ||
       err instanceof AnonAadhaarVerificationKeyMissingError ||
+      err instanceof AnonAadhaarPublicSignalMismatchError ||
       err instanceof MockAadhaarAssertionInvalidError
     ) {
       return res.status(403).json({ error: 'AADHAAR_VERIFICATION_FAILED', message: err.message });

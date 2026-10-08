@@ -304,10 +304,10 @@ async function runDemo() {
     rejectExpected(`Untrusted self-signed assertion rejected: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  step('Rejection Gate 5: Mode A Real Anon Aadhaar Cryptographic Signal Binding Isolation');
-  const realVerifier = new RealAnonAadhaarVerifier();
+  step('Rejection Gate 5a: Mode A Real Anon Aadhaar Fail-Closed Test Key Default');
+  const defaultRealVerifier = new RealAnonAadhaarVerifier();
   try {
-    await realVerifier.verify({
+    await defaultRealVerifier.verify({
       mode: 'REAL_ANON_AADHAAR',
       expectedWalletAddress: rameshWallet.address,
       expectedChallenge: '0x1234',
@@ -318,13 +318,38 @@ async function runDemo() {
         nullifier: '1234567890',
         timestamp: Math.floor(Date.now() / 1000),
         nullifierSeed: '42',
-        signal: BigInt(attackerWallet.address).toString(), // Mismatched signal!
+        signal: '123456',
       },
     });
-    console.error('  ❌ FAILED: Mismatched signal was accepted in real mode!');
+    console.error('  ❌ FAILED: Test pubkey hash was accepted under default production verifier!');
   } catch (err) {
-    rejectExpected(`Mismatched Anon Aadhaar public signal rejected: ${err instanceof Error ? err.message : String(err)}`);
+    rejectExpected(`Default fail-closed verifier rejected test pubkey hash: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  step('Rejection Gate 5b: Mode A Real Anon Aadhaar Session Signal Binding Isolation');
+  const testRealVerifier = new RealAnonAadhaarVerifier({ allowTestKeys: true });
+  try {
+    // Attempting wallet-only signal binding (which is rejected for replay protection)
+    await testRealVerifier.verify({
+      mode: 'REAL_ANON_AADHAAR',
+      expectedWalletAddress: rameshWallet.address,
+      expectedChallenge: '0x1234',
+      sessionId: 'test-session',
+      realProofPayload: {
+        groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+        pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+        nullifier: '1234567890',
+        timestamp: Math.floor(Date.now() / 1000),
+        nullifierSeed: '42',
+        signal: BigInt(rameshWallet.address).toString(), // Wallet-only signal rejected!
+      },
+    });
+    console.error('  ❌ FAILED: Wallet-only signal without session binding was accepted!');
+  } catch (err) {
+    rejectExpected(`Wallet-only signal binding strictly rejected (requires session binding): ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  await RealAnonAadhaarVerifier.cleanupCurves();
 
   banner('DEMO SUMMARY: ALL ONBOARDING & SECURITY GATES PASSED CLEANLY');
   console.log('1. Multi-factor hybrid onboarding demonstrated end-to-end.');

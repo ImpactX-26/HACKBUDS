@@ -11,6 +11,7 @@
  * 3. Never receive or persist Aadhaar numbers, Aadhaar QR payloads, or demographic data.
  */
 
+import crypto from 'node:crypto';
 import type { VerifiedIdentityAssertion } from '../types.js';
 
 export type AadhaarTrustMode = 'SYNTHETIC_MOCK_IDP' | 'REAL_ANON_AADHAAR';
@@ -35,12 +36,12 @@ export interface AnonAadhaarProofPayload {
   nullifier: string;
   timestamp: number;
   nullifierSeed: string;
-  signal: string; // Must bind to wallet address or session challenge
+  signal: string; // Must bind to session signal (deriveAnonAadhaarSessionSignal)
   ageAbove18?: boolean;
   gender?: string;
   pincode?: string;
   state?: string;
-  publicSignals?: string[]; // Raw public signal vector if available
+  publicSignals?: string[]; // Raw public signal vector from Groth16 proof
 }
 
 /**
@@ -72,17 +73,51 @@ export interface VerifyAadhaarResult {
   workerId?: string;
   verifiedAt: number;
   error?: string;
+  verificationStatus?: RealVerificationStatus;
   metadata?: {
     pubkeyHash?: string;
     timestamp?: number;
     nullifierSeed?: string;
     signal?: string;
+    isTestKey?: boolean;
   };
 }
+
+export type RealVerificationStatus = 'VERIFIED' | 'NOT_YET_VERIFIED';
 
 export interface IAadhaarProofVerifier {
   getTrustMode(): AadhaarTrustMode;
   verify(request: VerifyAadhaarRequest): Promise<VerifyAadhaarResult>;
+  getVerificationStatus?(): RealVerificationStatus;
+}
+
+/**
+ * BN254 scalar field order (group order r)
+ */
+export const BN254_SCALAR_FIELD_ORDER: bigint =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+/**
+ * Supported Anon Aadhaar session-bound signal construction.
+ * Binds sessionId, challengeNonce, and workerWalletAddress into a valid BN254 field element scalar.
+ * Wallet-only signal binding is explicitly prohibited to prevent cross-session proof replay.
+ */
+export function deriveAnonAadhaarSessionSignal(
+  sessionId: string,
+  challengeNonce: string,
+  walletAddress: string
+): string {
+  const cleanSession = sessionId.trim();
+  const cleanChallenge = challengeNonce.toLowerCase().trim();
+  const cleanWallet = walletAddress.toLowerCase().trim();
+
+  const digest = crypto
+    .createHash('sha256')
+    .update(`GIGVAULT_ANON_AADHAAR_SESSION_SIGNAL_V2:${cleanSession}:${cleanChallenge}:${cleanWallet}`, 'utf8')
+    .digest('hex');
+
+  const scalar = BigInt('0x' + digest) % BN254_SCALAR_FIELD_ORDER;
+  return scalar.toString();
 }
 
 // Typed error definitions
@@ -125,6 +160,13 @@ export class AnonAadhaarVerificationKeyMissingError extends Error {
   constructor(message: string = 'Anon Aadhaar verification key not configured') {
     super(`AnonAadhaarVerificationKeyMissing: ${message}`);
     this.name = 'AnonAadhaarVerificationKeyMissingError';
+  }
+}
+
+export class AnonAadhaarPublicSignalMismatchError extends Error {
+  constructor(message: string) {
+    super(`AnonAadhaarPublicSignalMismatch: ${message}`);
+    this.name = 'AnonAadhaarPublicSignalMismatchError';
   }
 }
 

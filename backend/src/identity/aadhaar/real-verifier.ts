@@ -7,11 +7,23 @@
  * Cryptographic & Architectural Invariants:
  * 1. Executes genuine snarkjs.groth16.verify on trusted server side.
  * 2. Strict public key hash verification against trusted UIDAI RSA roots.
+ *    FAIL-CLOSED: Test/staging keys require explicit opt-in (allowTestKeys: true)
+ *    and are NEVER trusted silently by default.
  * 3. Enforces cryptographic binding between the proof's public signal and the
- *    worker's EVM wallet address / server challenge to prevent proof theft.
- * 4. NEVER stores raw Aadhaar numbers, QR payloads, or demographic records.
- * 5. Fails closed if verification key is missing or proof fails mathematical verification.
- * 6. NEVER falls back silently to mock verification.
+ *    worker's EVM wallet address and session challenge to prevent cross-session replay.
+ *    Wallet-only signal binding is strictly rejected.
+ * 4. Verifies exact Anon Aadhaar v2 public signal schema and ordering:
+ *    [0]: nullifier
+ *    [1]: pubkeyHash
+ *    [2]: nullifierSeed
+ *    [3]: signal
+ *    [4]: timestamp
+ *    Rejects inconsistent duplicate fields between payload and public signal array.
+ * 5. Binds verified output directly to the verified public signal array.
+ * 6. NEVER stores raw Aadhaar numbers, QR payloads, or demographic records.
+ * 7. Fails closed if verification key is missing or proof fails mathematical verification.
+ * 8. Distinguishes genuine production status ('VERIFIED') from staging/unconfigured ('NOT_YET_VERIFIED').
+ * 9. NEVER falls back silently to mock verification.
  */
 
 // @ts-ignore - snarkjs does not ship full standard TS declarations in all versions
@@ -21,6 +33,7 @@ import {
   type IAadhaarProofVerifier,
   type VerifyAadhaarRequest,
   type VerifyAadhaarResult,
+  type RealVerificationStatus,
   AadhaarTrustMode,
   AadhaarTrustModeMismatchError,
   AnonAadhaarProofMalformedError,
@@ -28,30 +41,60 @@ import {
   AnonAadhaarSignalBindingMismatchError,
   AnonAadhaarPubkeyNotTrustedError,
   AnonAadhaarVerificationKeyMissingError,
+  AnonAadhaarPublicSignalMismatchError,
+  BN254_SCALAR_FIELD_ORDER,
+  deriveAnonAadhaarSessionSignal,
 } from './types.js';
 
 export interface RealAnonAadhaarVerifierOptions {
   verificationKey?: any; // Groth16 snarkjs verification key JSON
-  trustedPubkeyHashes?: string[]; // Allowed UIDAI public key hashes (string decimal or hex)
-  allowTestKeys?: boolean; // Whether to accept Anon Aadhaar test/staging QR public key
+  trustedPubkeyHashes?: string[]; // Allowed production UIDAI public key hashes (string decimal or hex)
+  allowTestKeys?: boolean; // Explicit test-only flag to accept Anon Aadhaar test/staging QR public key (defaults to false)
 }
 
 /**
- * Known UIDAI / Anon Aadhaar Public Key Hashes (BN254 Field Elements as decimal strings)
+ * Known Anon Aadhaar Test / Staging Public Key Hash (BN254 Field Element decimal string)
  */
 export const ANON_AADHAAR_TEST_PUBKEY_HASH =
   '153344406208579485121408801822606821217596075402008436573802272506162804618';
 
+/**
+ * Official Anon Aadhaar v2 Public Signal Vector Schema & Indices:
+ * Circuit outputs:
+ * [0]: nullifier
+ * Circuit public inputs:
+ * [1]: pubkeyHash
+ * [2]: nullifierSeed
+ * [3]: signal
+ * [4]: timestamp
+ */
+export const ANON_AADHAAR_V2_SIGNAL_INDEX = {
+  NULLIFIER: 0,
+  PUBKEY_HASH: 1,
+  NULLIFIER_SEED: 2,
+  SIGNAL: 3,
+  TIMESTAMP: 4,
+} as const;
+
+export const ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT = 5;
+
 export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
   private verificationKey?: any;
-  private trustedPubkeyHashes: Set<string>;
+  private productionPubkeyHashes: Set<string>;
+  private testPubkeyHashes: Set<string>;
+  private allowTestKeys: boolean;
 
   constructor(options: RealAnonAadhaarVerifierOptions = {}) {
     this.verificationKey = options.verificationKey;
-    this.trustedPubkeyHashes = new Set(options.trustedPubkeyHashes || []);
+    // NON-NEGOTIABLE SECURITY GATE: Fail closed by default!
+    // Staging / test public-key hashes MUST require explicit test-only configuration
+    // and must NEVER silently be trusted in genuine production mode.
+    this.allowTestKeys = options.allowTestKeys === true;
+    this.productionPubkeyHashes = new Set(options.trustedPubkeyHashes || []);
+    this.testPubkeyHashes = new Set();
 
-    if (options.allowTestKeys ?? true) {
-      this.trustedPubkeyHashes.add(ANON_AADHAAR_TEST_PUBKEY_HASH);
+    if (this.allowTestKeys) {
+      this.testPubkeyHashes.add(ANON_AADHAAR_TEST_PUBKEY_HASH);
     }
   }
 
@@ -59,42 +102,110 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
     return 'REAL_ANON_AADHAAR';
   }
 
+  /**
+   * Returns genuine production verification status.
+   * If production trust keys or official circuit verification key are unconfigured,
+   * genuine real verification is accurately and explicitly marked 'NOT_YET_VERIFIED'.
+   */
+  public getVerificationStatus(): RealVerificationStatus {
+    if (this.verificationKey && this.productionPubkeyHashes.size > 0) {
+      return 'VERIFIED';
+    }
+    return 'NOT_YET_VERIFIED';
+  }
+
   public setVerificationKey(vkey: any): void {
     this.verificationKey = vkey;
   }
 
-  public addTrustedPubkeyHash(hash: string): void {
-    this.trustedPubkeyHashes.add(hash.trim());
+  public addTrustedPubkeyHash(hash: string, isProduction: boolean = true): void {
+    const clean = hash.trim();
+    if (isProduction) {
+      this.productionPubkeyHashes.add(clean);
+    } else if (this.allowTestKeys) {
+      this.testPubkeyHashes.add(clean);
+    }
+  }
+
+  public isTrustedPubkeyHash(hash: string): boolean {
+    const clean = hash.trim();
+    if (this.productionPubkeyHashes.has(clean)) {
+      return true;
+    }
+    if (this.allowTestKeys && this.testPubkeyHashes.has(clean)) {
+      return true;
+    }
+    return false;
+  }
+
+  public isTestPubkeyHash(hash: string): boolean {
+    return this.testPubkeyHashes.has(hash.trim());
+  }
+
+  /**
+   * Explicitly terminate snarkjs curve worker threads to allow Node process to exit cleanly.
+   */
+  public static async cleanupCurves(): Promise<void> {
+    try {
+      if (snarkjs?.curves?.getCurveFromName) {
+        const curve = await snarkjs.curves.getCurveFromName('bn128');
+        if (curve?.terminate) {
+          await curve.terminate();
+        }
+      }
+    } catch {
+      // Ignore
+    }
   }
 
   /**
    * Check whether a submitted signal satisfies the required binding
-   * to the expected wallet address or server challenge.
+   * to the session challenge and wallet address.
+   * 
+   * SECURITY RULE:
+   * Do not accept wallet-only binding (e.g. BigInt(walletAddress).toString()) as a
+   * substitute for session-specific proof authorization. A valid signal must bind
+   * to the session challenge nonce and onboarding session context.
    */
   public isSignalBound(
     submittedSignal: string,
     expectedWalletAddress: string,
-    expectedChallenge: string
+    expectedChallenge: string,
+    sessionId?: string
   ): boolean {
     const cleanSignal = submittedSignal.trim();
 
-    // 1. Check wallet address as BigInt decimal string (standard Anon Aadhaar signal binding)
+    // STRICT REJECTION: Reject wallet-only signal binding!
+    // Proofs that only bind to wallet address can be replayed across sessions and external applications.
     try {
       const cleanWallet = expectedWalletAddress.toLowerCase().trim();
       const walletBigInt = BigInt(cleanWallet).toString();
       if (cleanSignal === walletBigInt) {
-        return true;
+        return false;
       }
     } catch {
       // Ignore conversion error
     }
 
-    // 2. Check challenge nonce direct match
+    // 1. Supported session-bound signal construction:
+    // deriveAnonAadhaarSessionSignal(sessionId, challengeNonce, walletAddress)
+    if (sessionId) {
+      const expectedSessionSignal = deriveAnonAadhaarSessionSignal(
+        sessionId,
+        expectedChallenge,
+        expectedWalletAddress
+      );
+      if (cleanSignal === expectedSessionSignal) {
+        return true;
+      }
+    }
+
+    // 2. Direct session challenge nonce match
     if (cleanSignal === expectedChallenge.trim()) {
       return true;
     }
 
-    // 3. Check challenge nonce as BigInt
+    // 3. Session challenge nonce as BigInt
     try {
       const challengeBigInt = BigInt(
         expectedChallenge.startsWith('0x') ? expectedChallenge : '0x' + expectedChallenge
@@ -106,11 +217,11 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
       // Ignore conversion error
     }
 
-    // 4. Check sha256 hash of challenge reduced to field
+    // 4. SHA-256 digest of challenge nonce reduced modulo BN254 scalar field order
     try {
-      const hashHex = crypto.createHash('sha256').update(expectedChallenge).digest('hex');
-      const hashBigInt = BigInt('0x' + hashHex).toString();
-      if (cleanSignal === hashBigInt) {
+      const hashHex = crypto.createHash('sha256').update(expectedChallenge, 'utf8').digest('hex');
+      const hashScalar = (BigInt('0x' + hashHex) % BN254_SCALAR_FIELD_ORDER).toString();
+      if (cleanSignal === hashScalar) {
         return true;
       }
     } catch {
@@ -131,59 +242,108 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
       throw new AnonAadhaarProofMalformedError('Missing realProofPayload in request');
     }
 
-    if (!payload.groth16Proof || !payload.pubkeyHash || !payload.nullifier || !payload.signal) {
+    if (
+      !payload.groth16Proof ||
+      !payload.pubkeyHash ||
+      !payload.nullifier ||
+      !payload.signal ||
+      payload.timestamp === undefined ||
+      payload.nullifierSeed === undefined
+    ) {
       throw new AnonAadhaarProofMalformedError(
-        'realProofPayload must include groth16Proof, pubkeyHash, nullifier, and signal'
+        'realProofPayload must include groth16Proof, pubkeyHash, nullifier, timestamp, nullifierSeed, and signal'
       );
     }
 
     // 2. Trust Root: Verify UIDAI public key hash against pinned trusted hashes
+    // Fails closed by default; test keys rejected unless allowTestKeys is explicitly true.
     const cleanPubkeyHash = payload.pubkeyHash.trim();
-    if (!this.trustedPubkeyHashes.has(cleanPubkeyHash)) {
+    if (!this.isTrustedPubkeyHash(cleanPubkeyHash)) {
       throw new AnonAadhaarPubkeyNotTrustedError(cleanPubkeyHash);
     }
 
-    // 3. Signal Binding: Proof MUST be bound to the onboarding session's wallet or challenge
+    // 3. Signal Binding: Proof MUST be bound to the onboarding session's challenge and wallet
+    // Strictly rejects wallet-only signal binding.
     const signalBound = this.isSignalBound(
       payload.signal,
       request.expectedWalletAddress,
-      request.expectedChallenge
+      request.expectedChallenge,
+      request.sessionId
     );
 
     if (!signalBound) {
       throw new AnonAadhaarSignalBindingMismatchError(
-        `wallet:${request.expectedWalletAddress} | challenge:${request.expectedChallenge}`,
+        `session:${request.sessionId} | wallet:${request.expectedWalletAddress} | challenge:${request.expectedChallenge}`,
         payload.signal
       );
     }
 
-    // 4. Cryptographic Proof Verification: Verify Groth16 proof using snarkjs
+    // 4. Schema & Public Signal Vector Binding (Anon Aadhaar v2 circuit ordering)
+    // Circuit ordering:
+    // [0]: nullifier
+    // [1]: pubkeyHash
+    // [2]: nullifierSeed
+    // [3]: signal
+    // [4]: timestamp
+    let verifiedPublicSignals: string[];
+
+    if (payload.publicSignals && payload.publicSignals.length > 0) {
+      if (payload.publicSignals.length !== ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Expected ${ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT} public signals for Anon Aadhaar v2 circuit schema, got ${payload.publicSignals.length}`
+        );
+      }
+
+      // Reject inconsistent duplicate fields between payload and publicSignals array
+      if (payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER] !== payload.nullifier) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Inconsistent nullifier: payload.nullifier '${payload.nullifier}' != publicSignals[${ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER}] '${payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER]}'`
+        );
+      }
+      if (payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.PUBKEY_HASH] !== payload.pubkeyHash) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Inconsistent pubkeyHash: payload.pubkeyHash '${payload.pubkeyHash}' != publicSignals[${ANON_AADHAAR_V2_SIGNAL_INDEX.PUBKEY_HASH}] '${payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.PUBKEY_HASH]}'`
+        );
+      }
+      if (payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER_SEED] !== payload.nullifierSeed) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Inconsistent nullifierSeed: payload.nullifierSeed '${payload.nullifierSeed}' != publicSignals[${ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER_SEED}] '${payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER_SEED]}'`
+        );
+      }
+      if (payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.SIGNAL] !== payload.signal) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Inconsistent signal: payload.signal '${payload.signal}' != publicSignals[${ANON_AADHAAR_V2_SIGNAL_INDEX.SIGNAL}] '${payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.SIGNAL]}'`
+        );
+      }
+      if (payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.TIMESTAMP] !== String(payload.timestamp)) {
+        throw new AnonAadhaarPublicSignalMismatchError(
+          `Inconsistent timestamp: payload.timestamp '${payload.timestamp}' != publicSignals[${ANON_AADHAAR_V2_SIGNAL_INDEX.TIMESTAMP}] '${payload.publicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.TIMESTAMP]}'`
+        );
+      }
+
+      verifiedPublicSignals = payload.publicSignals;
+    } else {
+      // Construct canonical public signals array matching Anon Aadhaar v2 circuit
+      verifiedPublicSignals = [
+        payload.nullifier,
+        payload.pubkeyHash,
+        payload.nullifierSeed,
+        payload.signal,
+        String(payload.timestamp),
+      ];
+    }
+
+    // 5. Cryptographic Proof Verification: Verify Groth16 proof using snarkjs
     if (!this.verificationKey) {
       throw new AnonAadhaarVerificationKeyMissingError(
         'Real Anon Aadhaar verification key is not configured on this server instance. Proof verification cannot proceed.'
       );
     }
 
-    // Construct public signals array matching circuit expectations
-    let publicSignals = payload.publicSignals;
-    if (!publicSignals || publicSignals.length === 0) {
-      publicSignals = [
-        payload.pubkeyHash,
-        payload.nullifier,
-        String(payload.timestamp),
-        payload.ageAbove18 ? '1' : '0',
-        payload.gender || '0',
-        payload.pincode || '0',
-        payload.state || '0',
-        payload.nullifierSeed,
-        payload.signal,
-      ];
-    }
-
     try {
       const isValid = await snarkjs.groth16.verify(
         this.verificationKey,
-        publicSignals,
+        verifiedPublicSignals,
         payload.groth16Proof
       );
 
@@ -199,16 +359,25 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
       );
     }
 
+    // 6. Bind verified output strictly to the verified public signal array
+    const outputNullifier = verifiedPublicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER];
+    const outputPubkeyHash = verifiedPublicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.PUBKEY_HASH];
+    const outputNullifierSeed = verifiedPublicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.NULLIFIER_SEED];
+    const outputSignal = verifiedPublicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.SIGNAL];
+    const outputTimestamp = Number(verifiedPublicSignals[ANON_AADHAAR_V2_SIGNAL_INDEX.TIMESTAMP]);
+
     return {
       valid: true,
       mode: 'REAL_ANON_AADHAAR',
-      identityNullifier: payload.nullifier,
+      identityNullifier: outputNullifier,
       verifiedAt: Date.now(),
+      verificationStatus: this.getVerificationStatus(),
       metadata: {
-        pubkeyHash: payload.pubkeyHash,
-        timestamp: payload.timestamp,
-        nullifierSeed: payload.nullifierSeed,
-        signal: payload.signal,
+        pubkeyHash: outputPubkeyHash,
+        timestamp: outputTimestamp,
+        nullifierSeed: outputNullifierSeed,
+        signal: outputSignal,
+        isTestKey: this.isTestPubkeyHash(outputPubkeyHash),
       },
     };
   }

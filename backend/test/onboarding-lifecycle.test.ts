@@ -13,7 +13,7 @@
  * 9. Downstream attestation integration: synthetic worker onboarding -> FIP consent -> evidence reconstruction
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert';
 import request from 'supertest';
 import { ethers } from 'ethers';
@@ -35,7 +35,6 @@ import {
 import { MockPhoneVerificationProvider } from '../src/identity/phone/mock-provider.js';
 import { TwilioVerifyPhoneProvider } from '../src/identity/phone/twilio-provider.js';
 
-// Aadhaar module
 import {
   AadhaarTrustModeMismatchError,
   AnonAadhaarProofMalformedError,
@@ -43,10 +42,17 @@ import {
   AnonAadhaarSignalBindingMismatchError,
   AnonAadhaarPubkeyNotTrustedError,
   AnonAadhaarVerificationKeyMissingError,
+  AnonAadhaarPublicSignalMismatchError,
   MockAadhaarAssertionInvalidError,
+  deriveAnonAadhaarSessionSignal,
 } from '../src/identity/aadhaar/types.js';
 import { MockAadhaarVerifier } from '../src/identity/aadhaar/mock-verifier.js';
-import { RealAnonAadhaarVerifier, ANON_AADHAAR_TEST_PUBKEY_HASH } from '../src/identity/aadhaar/real-verifier.js';
+import {
+  RealAnonAadhaarVerifier,
+  ANON_AADHAAR_TEST_PUBKEY_HASH,
+  ANON_AADHAAR_V2_SIGNAL_INDEX,
+  ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT,
+} from '../src/identity/aadhaar/real-verifier.js';
 
 // Onboarding module
 import { WorkerOnboardingRegistry } from '../src/identity/onboarding/registry.js';
@@ -418,7 +424,11 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
     const testWallet = ethers.Wallet.createRandom();
     const idp = new MockIdentityProvider();
     const mockVerifier = new MockAadhaarVerifier(idp);
-    const realVerifier = new RealAnonAadhaarVerifier();
+
+    // Default real verifier: fails closed by default
+    const defaultRealVerifier = new RealAnonAadhaarVerifier();
+    // Test-configured real verifier: explicitly allows test keys
+    const testRealVerifier = new RealAnonAadhaarVerifier({ allowTestKeys: true });
 
     it('Mode B Mock Verifier accepts valid synthetic assertion and extracts nullifier', async () => {
       const assertion = idp.issueAssertion({
@@ -476,7 +486,7 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
     it('Mode A Real Verifier strictly rejects synthetic mock mode', async () => {
       await assert.rejects(
         async () =>
-          realVerifier.verify({
+          defaultRealVerifier.verify({
             mode: 'SYNTHETIC_MOCK_IDP',
             expectedWalletAddress: testWallet.address,
             expectedChallenge: '0x1234',
@@ -486,33 +496,11 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
       );
     });
 
-    it('Mode A Real Verifier rejects untrusted UIDAI public key hashes', async () => {
+    it('Mode A Real Verifier fails closed by default: rejects test/staging key without explicit allowTestKeys', async () => {
+      // Even with known test pubkey hash, default real verifier must fail closed
       await assert.rejects(
         async () =>
-          realVerifier.verify({
-            mode: 'REAL_ANON_AADHAAR',
-            expectedWalletAddress: testWallet.address,
-            expectedChallenge: '0x1234',
-            sessionId: 'session-1',
-            realProofPayload: {
-              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
-              pubkeyHash: '9999999999999999999999999999999999999999999999999999999999999999', // Untrusted
-              nullifier: '1234567890',
-              timestamp: Math.floor(Date.now() / 1000),
-              nullifierSeed: '42',
-              signal: BigInt(testWallet.address).toString(),
-            },
-          }),
-        AnonAadhaarPubkeyNotTrustedError
-      );
-    });
-
-    it('Mode A Real Verifier rejects proof where signal does not bind to wallet or challenge', async () => {
-      const otherWallet = ethers.Wallet.createRandom();
-
-      await assert.rejects(
-        async () =>
-          realVerifier.verify({
+          defaultRealVerifier.verify({
             mode: 'REAL_ANON_AADHAAR',
             expectedWalletAddress: testWallet.address,
             expectedChallenge: '0x1234',
@@ -523,15 +511,198 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
               nullifier: '1234567890',
               timestamp: Math.floor(Date.now() / 1000),
               nullifierSeed: '42',
-              signal: BigInt(otherWallet.address).toString(), // Mismatched wallet signal!
+              signal: deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address),
+            },
+          }),
+        AnonAadhaarPubkeyNotTrustedError
+      );
+    });
+
+    it('Mode A Real Verifier rejects untrusted UIDAI public key hashes even with allowTestKeys: true', async () => {
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: '9999999999999999999999999999999999999999999999999999999999999999', // Untrusted
+              nullifier: '1234567890',
+              timestamp: Math.floor(Date.now() / 1000),
+              nullifierSeed: '42',
+              signal: deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address),
+            },
+          }),
+        AnonAadhaarPubkeyNotTrustedError
+      );
+    });
+
+    it('Mode A Real Verifier strictly rejects wallet-only signal binding (replay protection)', async () => {
+      // Wallet-only binding: BigInt(testWallet.address).toString()
+      // MUST BE REJECTED to prevent cross-session proof replay
+      const walletOnlySignal = BigInt(testWallet.address).toString();
+
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: Math.floor(Date.now() / 1000),
+              nullifierSeed: '42',
+              signal: walletOnlySignal, // Wallet-only!
             },
           }),
         AnonAadhaarSignalBindingMismatchError
       );
     });
 
+    it('Mode A Real Verifier rejects proof where signal does not bind to session challenge or session context', async () => {
+      const otherWallet = ethers.Wallet.createRandom();
+      const mismatchedSessionSignal = deriveAnonAadhaarSessionSignal('other-session', '0x1234', otherWallet.address);
+
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: Math.floor(Date.now() / 1000),
+              nullifierSeed: '42',
+              signal: mismatchedSessionSignal, // Mismatched session signal!
+            },
+          }),
+        AnonAadhaarSignalBindingMismatchError
+      );
+    });
+
+    it('Mode A Real Verifier rejects publicSignals with incorrect array length', async () => {
+      const validSessionSignal = deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address);
+
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: 1700000000,
+              nullifierSeed: '42',
+              signal: validSessionSignal,
+              publicSignals: ['1234567890', ANON_AADHAAR_TEST_PUBKEY_HASH], // Only 2 elements instead of 5
+            },
+          }),
+        (err: any) => err instanceof AnonAadhaarPublicSignalMismatchError && err.message.includes('Expected 5 public signals')
+      );
+    });
+
+    it('Mode A Real Verifier rejects inconsistent duplicate fields between payload and publicSignals', async () => {
+      const validSessionSignal = deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address);
+
+      // Inconsistent nullifier
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: 1700000000,
+              nullifierSeed: '42',
+              signal: validSessionSignal,
+              publicSignals: [
+                '9999999999', // Inconsistent nullifier!
+                ANON_AADHAAR_TEST_PUBKEY_HASH,
+                '42',
+                validSessionSignal,
+                '1700000000',
+              ],
+            },
+          }),
+        (err: any) => err instanceof AnonAadhaarPublicSignalMismatchError && err.message.includes('Inconsistent nullifier')
+      );
+
+      // Inconsistent pubkeyHash
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: 1700000000,
+              nullifierSeed: '42',
+              signal: validSessionSignal,
+              publicSignals: [
+                '1234567890',
+                '8888888888', // Inconsistent pubkeyHash!
+                '42',
+                validSessionSignal,
+                '1700000000',
+              ],
+            },
+          }),
+        (err: any) => err instanceof AnonAadhaarPublicSignalMismatchError && err.message.includes('Inconsistent pubkeyHash')
+      );
+
+      // Inconsistent signal
+      await assert.rejects(
+        async () =>
+          testRealVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['5', '6'], protocol: 'groth16' },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: 1700000000,
+              nullifierSeed: '42',
+              signal: validSessionSignal,
+              publicSignals: [
+                '1234567890',
+                ANON_AADHAAR_TEST_PUBKEY_HASH,
+                '42',
+                '7777777777', // Inconsistent signal!
+                '1700000000',
+              ],
+            },
+          }),
+        (err: any) => err instanceof AnonAadhaarPublicSignalMismatchError && err.message.includes('Inconsistent signal')
+      );
+    });
+
     it('Mode A Real Verifier fails closed when verification key is unconfigured', async () => {
-      const unconfiguredVerifier = new RealAnonAadhaarVerifier({ verificationKey: undefined });
+      const validSessionSignal = deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address);
+      const unconfiguredVerifier = new RealAnonAadhaarVerifier({
+        allowTestKeys: true,
+        verificationKey: undefined,
+      });
 
       await assert.rejects(
         async () =>
@@ -546,11 +717,79 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
               nullifier: '1234567890',
               timestamp: Math.floor(Date.now() / 1000),
               nullifierSeed: '42',
-              signal: BigInt(testWallet.address).toString(),
+              signal: validSessionSignal,
             },
           }),
         AnonAadhaarVerificationKeyMissingError
       );
+    });
+
+    it('Mode A Real Verifier explicitly marks genuine production verification as NOT_YET_VERIFIED when unconfigured', () => {
+      // By default without pinned production roots and production vkey, real verification status is NOT_YET_VERIFIED
+      assert.strictEqual(defaultRealVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+      assert.strictEqual(testRealVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // Only when BOTH production verification key AND production pubkey hash are configured does it become VERIFIED
+      const mockProductionVerifier = new RealAnonAadhaarVerifier({
+        verificationKey: { protocol: 'groth16' },
+        trustedPubkeyHashes: ['12345678901234567890'],
+      });
+      assert.strictEqual(mockProductionVerifier.getVerificationStatus(), 'VERIFIED');
+    });
+
+    it('Mode A Real Verifier executes snarkjs.groth16.verify and rejects tampered proof', async () => {
+      const validSessionSignal = deriveAnonAadhaarSessionSignal('session-1', '0x1234', testWallet.address);
+      const testVkey = {
+        protocol: 'groth16',
+        curve: 'bn128',
+        nPublic: 5,
+        vk_alpha_1: ['1', '2', '1'],
+        vk_beta_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        vk_gamma_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        vk_delta_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        IC: [
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+        ],
+      };
+
+      const configuredVerifier = new RealAnonAadhaarVerifier({
+        allowTestKeys: true,
+        verificationKey: testVkey,
+      });
+
+      // Proof that fails cryptographic curve verification
+      await assert.rejects(
+        async () =>
+          configuredVerifier.verify({
+            mode: 'REAL_ANON_AADHAAR',
+            expectedWalletAddress: testWallet.address,
+            expectedChallenge: '0x1234',
+            sessionId: 'session-1',
+            realProofPayload: {
+              groth16Proof: {
+                pi_a: ['1', '2', '1'],
+                pi_b: [['1', '2'], ['3', '4']],
+                pi_c: ['1', '2', '1'],
+                protocol: 'groth16',
+              },
+              pubkeyHash: ANON_AADHAAR_TEST_PUBKEY_HASH,
+              nullifier: '1234567890',
+              timestamp: Math.floor(Date.now() / 1000),
+              nullifierSeed: '42',
+              signal: validSessionSignal,
+            },
+          }),
+        AnonAadhaarProofTamperedError
+      );
+    });
+
+    after(async () => {
+      await RealAnonAadhaarVerifier.cleanupCurves();
     });
   });
 
