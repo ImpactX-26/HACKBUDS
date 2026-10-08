@@ -90,15 +90,23 @@ The following sections are **PROPOSED / REVIEW ONLY** and are not approved proto
   - When an `expectedChainId` is configured on the service or HTTP app, both `/attestation/attest` and direct `attestWorkerEvidence` reject missing chain IDs (`CHAIN_DOMAIN_MISSING`) or mismatched chain IDs (`CHAIN_DOMAIN_MISMATCH`).
   - Migration from `personal_sign` text to EIP-712 structured data signing is **PROPOSED** for production testnet integration.
 
-#### Replay Store Persistence Across Restarts & Separate Processes
-- **Zero-Cost Host Persistence (`FileReplayStore`):**
-  - Implemented `FileReplayStore` implementing `IReplayStore` with atomic file persistence on disk (`node:fs` write-to-temp + atomic rename).
+#### Replay Store Persistence, Concurrency & Security Hardening
+- **Zero-Cost Host Persistence & Mutual Exclusion (`FileReplayStore`):**
+  - Implemented `FileReplayStore` implementing `IReplayStore` with transactional cross-process mutual exclusion (`fs.openSync` with atomic `O_CREAT | O_EXCL` flags on `${filePath}.lock`) and atomic file writes (`node:fs` write-to-temp + atomic rename).
+  - Guarantees true read-check-write atomicity across contending OS child processes: tested with actual child processes contending concurrently for identical signatures or duplicate nonces, verifying exactly one process succeeds and the other is rejected.
   - Persists minimal authorization records `{ signature, nonce, walletAddress, action, timestamp, consumedAt, requestId, requestFingerprint }` without any monetary cost or external database dependencies.
   - Invariant: Zero financial evidence, transaction data, or snapshots are stored.
-  - Survives process restarts and synchronizes across separate operating system processes pointing to the same storage path.
+  - Survives process restarts and synchronizes safely across separate operating system processes on the same host.
+- **Fail-Closed on Corrupted, Malformed, or Unreadable Storage:**
+  - `syncFromDisk()` strictly validates existing storage: malformed JSON, empty/whitespace files, non-array roots, or invalid record schemas immediately throw `FileReplayStoreCorruptedError`.
+  - Errors are never swallowed; the store fails closed on both initialization and subsequent calls (`consume`, `isConsumed`), preventing acceptance of already-consumed authorizations when storage integrity is compromised.
+- **Freshness-Aligned Expiry Retention:**
+  - Consumed records are retained until `Math.max(record.timestamp, record.consumedAt) + maxAgeSeconds`.
+  - Authorizations signed up to 60 seconds ahead (within allowed clock-skew) remain protected against replay throughout their entire cryptographic validity period (tested at `T + 301s` and the exact `T + 360s` validity boundary).
+  - Records are pruned only at `T + 361s` when the signature can no longer pass `verifyWorkerAuthorization`.
 - **Unresolved Deployment Replay Protection (Reported Limitation):**
-  - For distributed multi-host or multi-region cloud production deployments, local filesystem locking is insufficient across separate container instances without shared distributed storage.
-  - Distributed cluster replay protection (e.g. Redis cluster with atomic Lua scripts or PostgreSQL transaction WAL) is explicitly reported as an **UNRESOLVED architectural decision** requiring joint operational consensus and infrastructure provisioning.
+  - While `FileReplayStore` provides zero-cost persistence, corruption resilience, and process-level mutual exclusion on a single host, horizontal scaling across distributed multi-container or multi-region cloud production clusters requires shared distributed infrastructure (e.g. Redis cluster with atomic Lua scripts or PostgreSQL transaction WAL).
+  - Cross-host distributed cluster replay protection remains an **UNRESOLVED operational requirement** pending deployment infrastructure provisioning.
 
 #### Reconciliation of Reconstruction Retry Semantics
 - **CURRENT BEHAVIOR (ENFORCED IN CODE):**

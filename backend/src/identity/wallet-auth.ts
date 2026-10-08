@@ -60,6 +60,7 @@ export interface ConsumeOptions {
   requestId?: string;
   requestFingerprint?: string;
   allowIdempotentReplay?: boolean;
+  nowSec?: number;
 }
 
 export interface ConsumeResult {
@@ -79,6 +80,13 @@ export interface IReplayStore {
   reset(): void;
 }
 
+export class FileReplayStoreCorruptedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FileReplayStoreCorruptedError';
+  }
+}
+
 export class MemoryReplayStore implements IReplayStore {
   private recordsBySignature = new Map<string, ConsumedAuthRecord>();
   private recordsByNonce = new Map<string, ConsumedAuthRecord>();
@@ -86,10 +94,12 @@ export class MemoryReplayStore implements IReplayStore {
   public pruneExpired(maxAgeSeconds = 300, nowSec = Math.floor(Date.now() / 1000)): number {
     let pruned = 0;
     for (const [sig, record] of this.recordsBySignature.entries()) {
-      if (nowSec - record.consumedAt > maxAgeSeconds) {
+      // Retain record until the authorization can no longer pass freshness verification
+      const expiryTime = Math.max(record.timestamp, record.consumedAt) + maxAgeSeconds;
+      if (nowSec > expiryTime) {
         this.recordsBySignature.delete(sig);
         if (record.nonce) {
-          this.recordsByNonce.delete(`${record.walletAddress}:${record.nonce}`);
+          this.recordsByNonce.delete(`${record.walletAddress.toLowerCase()}:${record.nonce}`);
         }
         pruned++;
       }
@@ -98,7 +108,7 @@ export class MemoryReplayStore implements IReplayStore {
   }
 
   public consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult {
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec = options?.nowSec ?? Math.floor(Date.now() / 1000);
     this.pruneExpired(300, nowSec);
 
     const sigKey = auth.signature.toLowerCase();
@@ -157,43 +167,206 @@ export class MemoryReplayStore implements IReplayStore {
 }
 
 /**
- * Zero-cost filesystem-backed replay store.
+ * Zero-cost filesystem-backed replay store with cross-process exclusive locking.
  * Persists authorization records across actual process restarts and separate OS processes
- * on the same host using atomic file writes.
- * Invariant: Never stores raw financial records, account balances, or evidence snapshots.
+ * on the same host using transactional lockfile and atomic file writes.
+ * 
+ * Guarantees:
+ * 1. Mutual exclusion: exactly one of concurrent contending processes can consume a signature or nonce.
+ * 2. Fail closed: throws FileReplayStoreCorruptedError on corrupted, malformed, or unreadable storage.
+ * 3. Freshness alignment: retains records until the authorization can no longer pass freshness checks.
+ * 4. Zero financial evidence: never stores raw financial records, account balances, or evidence snapshots.
  */
 export class FileReplayStore implements IReplayStore {
   private filePath: string;
   private recordsBySignature = new Map<string, ConsumedAuthRecord>();
   private recordsByNonce = new Map<string, ConsumedAuthRecord>();
+  private lockDepth = 0;
 
   constructor(filePath: string) {
     this.filePath = filePath;
-    this.syncFromDisk();
+    this.withLock(() => {
+      this.syncFromDisk();
+    });
   }
 
   public getFilePath(): string {
     return this.filePath;
   }
 
-  private syncFromDisk(): void {
-    try {
-      if (!fs.existsSync(this.filePath)) {
+  private acquireLock(timeoutMs = 5000, pollIntervalMs = 5): void {
+    const lockPath = `${this.filePath}.lock`;
+    const dir = path.dirname(lockPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR);
+        try {
+          fs.writeSync(fd, `${process.pid}:${Date.now()}`);
+        } finally {
+          fs.closeSync(fd);
+        }
         return;
-      }
-      const raw = fs.readFileSync(this.filePath, 'utf8');
-      if (!raw.trim()) return;
-      const records: ConsumedAuthRecord[] = JSON.parse(raw);
-      this.recordsBySignature.clear();
-      this.recordsByNonce.clear();
-      for (const rec of records) {
-        this.recordsBySignature.set(rec.signature.toLowerCase(), rec);
-        if (rec.nonce) {
-          this.recordsByNonce.set(`${rec.walletAddress.toLowerCase()}:${rec.nonce}`, rec);
+      } catch (err: any) {
+        if (err.code === 'EEXIST') {
+          // Check for stale lock (> 10 seconds old)
+          try {
+            const stats = fs.statSync(lockPath);
+            if (Date.now() - stats.mtimeMs > 10000) {
+              try {
+                fs.unlinkSync(lockPath);
+              } catch {
+                // ignore
+              }
+              continue;
+            }
+          } catch {
+            // lock may have been released in between
+            continue;
+          }
+          // Sleep briefly before retrying
+          try {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollIntervalMs);
+          } catch {
+            const spinEnd = Date.now() + pollIntervalMs;
+            while (Date.now() < spinEnd) {}
+          }
+        } else {
+          throw err;
         }
       }
+    }
+    throw new Error(`FileReplayStoreLockTimeout: failed to acquire exclusive lock on ${lockPath} after ${timeoutMs}ms`);
+  }
+
+  private releaseLock(): void {
+    const lockPath = `${this.filePath}.lock`;
+    try {
+      if (fs.existsSync(lockPath)) {
+        fs.unlinkSync(lockPath);
+      }
     } catch {
-      // Non-fatal if read temporarily fails; preserves existing memory cache
+      // Ignore if already deleted
+    }
+  }
+
+  private withLock<T>(fn: () => T): T {
+    if (this.lockDepth > 0) {
+      this.lockDepth++;
+      try {
+        return fn();
+      } finally {
+        this.lockDepth--;
+      }
+    }
+
+    this.acquireLock();
+    this.lockDepth = 1;
+    try {
+      return fn();
+    } finally {
+      this.lockDepth = 0;
+      this.releaseLock();
+    }
+  }
+
+  private syncFromDisk(): void {
+    if (!fs.existsSync(this.filePath)) {
+      this.recordsBySignature.clear();
+      this.recordsByNonce.clear();
+      return;
+    }
+
+    let raw: string;
+    try {
+      raw = fs.readFileSync(this.filePath, 'utf8');
+    } catch (readErr: any) {
+      throw new FileReplayStoreCorruptedError(
+        `Failed to read replay storage file at ${this.filePath}: ${readErr.message}`
+      );
+    }
+
+    if (!raw.trim()) {
+      throw new FileReplayStoreCorruptedError(
+        `Replay storage file at ${this.filePath} is empty or whitespace-only`
+      );
+    }
+
+    let records: unknown;
+    try {
+      records = JSON.parse(raw);
+    } catch (parseErr: any) {
+      throw new FileReplayStoreCorruptedError(
+        `Replay storage file at ${this.filePath} contains malformed JSON: ${parseErr.message}`
+      );
+    }
+
+    if (!Array.isArray(records)) {
+      throw new FileReplayStoreCorruptedError(
+        `Replay storage file at ${this.filePath} root must be a JSON array`
+      );
+    }
+
+    this.recordsBySignature.clear();
+    this.recordsByNonce.clear();
+
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i];
+      if (!rec || typeof rec !== 'object') {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: expected object`
+        );
+      }
+      const record = rec as Partial<ConsumedAuthRecord>;
+      if (typeof record.signature !== 'string' || !record.signature.trim()) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: missing signature`
+        );
+      }
+      if (typeof record.walletAddress !== 'string' || !record.walletAddress.trim()) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: missing walletAddress`
+        );
+      }
+      if (typeof record.action !== 'string' || !record.action.trim()) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: missing action`
+        );
+      }
+      if (typeof record.timestamp !== 'number' || !Number.isSafeInteger(record.timestamp) || record.timestamp <= 0) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: invalid timestamp`
+        );
+      }
+      if (typeof record.consumedAt !== 'number' || !Number.isSafeInteger(record.consumedAt) || record.consumedAt <= 0) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: invalid consumedAt`
+        );
+      }
+      if (record.nonce !== undefined && (typeof record.nonce !== 'string' || !record.nonce.trim())) {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: invalid nonce`
+        );
+      }
+      if (record.requestId !== undefined && typeof record.requestId !== 'string') {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: invalid requestId`
+        );
+      }
+      if (record.requestFingerprint !== undefined && typeof record.requestFingerprint !== 'string') {
+        throw new FileReplayStoreCorruptedError(
+          `Invalid record at index ${i} in ${this.filePath}: invalid requestFingerprint`
+        );
+      }
+
+      const validRecord = record as ConsumedAuthRecord;
+      this.recordsBySignature.set(validRecord.signature.toLowerCase(), validRecord);
+      if (validRecord.nonce) {
+        this.recordsByNonce.set(`${validRecord.walletAddress.toLowerCase()}:${validRecord.nonce}`, validRecord);
+      }
     }
   }
 
@@ -204,7 +377,7 @@ export class FileReplayStore implements IReplayStore {
         fs.mkdirSync(dir, { recursive: true });
       }
       const allRecords = Array.from(this.recordsBySignature.values());
-      const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
+      const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
       fs.writeFileSync(tmpPath, JSON.stringify(allRecords, null, 2), 'utf8');
       fs.renameSync(tmpPath, this.filePath);
     } catch (err) {
@@ -215,89 +388,98 @@ export class FileReplayStore implements IReplayStore {
   }
 
   public pruneExpired(maxAgeSeconds = 300, nowSec = Math.floor(Date.now() / 1000)): number {
-    this.syncFromDisk();
-    let pruned = 0;
-    for (const [sig, record] of this.recordsBySignature.entries()) {
-      if (nowSec - record.consumedAt > maxAgeSeconds) {
-        this.recordsBySignature.delete(sig);
-        if (record.nonce) {
-          this.recordsByNonce.delete(`${record.walletAddress.toLowerCase()}:${record.nonce}`);
+    return this.withLock(() => {
+      this.syncFromDisk();
+      let pruned = 0;
+      for (const [sig, record] of this.recordsBySignature.entries()) {
+        const expiryTime = Math.max(record.timestamp, record.consumedAt) + maxAgeSeconds;
+        if (nowSec > expiryTime) {
+          this.recordsBySignature.delete(sig);
+          if (record.nonce) {
+            this.recordsByNonce.delete(`${record.walletAddress.toLowerCase()}:${record.nonce}`);
+          }
+          pruned++;
         }
-        pruned++;
       }
-    }
-    if (pruned > 0) {
-      this.persistToDisk();
-    }
-    return pruned;
+      if (pruned > 0) {
+        this.persistToDisk();
+      }
+      return pruned;
+    });
   }
 
   public consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult {
-    this.syncFromDisk();
-    const nowSec = Math.floor(Date.now() / 1000);
-    this.pruneExpired(300, nowSec);
+    return this.withLock(() => {
+      this.syncFromDisk();
+      const nowSec = options?.nowSec ?? Math.floor(Date.now() / 1000);
+      this.pruneExpired(300, nowSec);
 
-    const sigKey = auth.signature.toLowerCase();
-    const existing = this.recordsBySignature.get(sigKey);
+      const sigKey = auth.signature.toLowerCase();
+      const existing = this.recordsBySignature.get(sigKey);
 
-    if (existing) {
-      if (
-        options?.allowIdempotentReplay &&
-        options?.requestFingerprint &&
-        existing.requestFingerprint === options.requestFingerprint
-      ) {
-        return { isConsumed: true, isIdempotentReplay: true };
+      if (existing) {
+        if (
+          options?.allowIdempotentReplay &&
+          options?.requestFingerprint &&
+          existing.requestFingerprint === options.requestFingerprint
+        ) {
+          return { isConsumed: true, isIdempotentReplay: true };
+        }
+        throw new Error('ReplayAttackDetected: worker authorization signature already consumed');
       }
-      throw new Error('ReplayAttackDetected: worker authorization signature already consumed');
-    }
 
-    if (auth.nonce) {
-      const nonceKey = `${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`;
-      if (this.recordsByNonce.has(nonceKey)) {
-        throw new Error(
-          `ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`
-        );
+      if (auth.nonce) {
+        const nonceKey = `${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`;
+        if (this.recordsByNonce.has(nonceKey)) {
+          throw new Error(
+            `ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`
+          );
+        }
       }
-    }
 
-    const record: ConsumedAuthRecord = {
-      signature: sigKey,
-      nonce: auth.nonce,
-      walletAddress: auth.workerWalletAddress.toLowerCase(),
-      action: auth.action,
-      timestamp: auth.timestamp,
-      consumedAt: nowSec,
-      requestId: options?.requestId,
-      requestFingerprint: options?.requestFingerprint,
-    };
+      const record: ConsumedAuthRecord = {
+        signature: sigKey,
+        nonce: auth.nonce,
+        walletAddress: auth.workerWalletAddress.toLowerCase(),
+        action: auth.action,
+        timestamp: auth.timestamp,
+        consumedAt: nowSec,
+        requestId: options?.requestId,
+        requestFingerprint: options?.requestFingerprint,
+      };
 
-    this.recordsBySignature.set(sigKey, record);
-    if (auth.nonce) {
-      this.recordsByNonce.set(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`, record);
-    }
+      this.recordsBySignature.set(sigKey, record);
+      if (auth.nonce) {
+        this.recordsByNonce.set(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`, record);
+      }
 
-    this.persistToDisk();
-    return { isConsumed: false, isIdempotentReplay: false };
+      this.persistToDisk();
+      return { isConsumed: false, isIdempotentReplay: false };
+    });
   }
 
   public isConsumed(auth: WorkerWalletAuthorization): boolean {
-    this.syncFromDisk();
-    const sigKey = auth.signature.toLowerCase();
-    if (this.recordsBySignature.has(sigKey)) return true;
-    if (auth.nonce && this.recordsByNonce.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
-    return false;
+    return this.withLock(() => {
+      this.syncFromDisk();
+      const sigKey = auth.signature.toLowerCase();
+      if (this.recordsBySignature.has(sigKey)) return true;
+      if (auth.nonce && this.recordsByNonce.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
+      return false;
+    });
   }
 
   public reset(): void {
-    this.recordsBySignature.clear();
-    this.recordsByNonce.clear();
-    try {
-      if (fs.existsSync(this.filePath)) {
-        fs.unlinkSync(this.filePath);
+    this.withLock(() => {
+      this.recordsBySignature.clear();
+      this.recordsByNonce.clear();
+      try {
+        if (fs.existsSync(this.filePath)) {
+          fs.unlinkSync(this.filePath);
+        }
+      } catch {
+        // Ignore
       }
-    } catch {
-      // Ignore
-    }
+    });
   }
 }
 

@@ -17,7 +17,8 @@ import { MockIdentityProvider } from '../src/identity/mock-idp.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore, FileReplayStore } from '../src/identity/wallet-auth.js';
+import { spawn } from 'node:child_process';
+import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore, FileReplayStore, FileReplayStoreCorruptedError } from '../src/identity/wallet-auth.js';
 import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
@@ -603,5 +604,353 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
       walletAuthorization: authValidChain,
     });
     assert.strictEqual(res.verified, true);
+  });
+
+  it('MUST PREVENT CONCURRENT CONSUMPTION across contending child processes (same signature)', async () => {
+    const tempFile = path.join(os.tmpdir(), `gigvault-concurrent-sig-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_CONCURRENT_1',
+          expectedPassportId: 901,
+          nonce: 'nonce-concurrent-sig-1',
+        },
+        rameshWallet
+      );
+
+      function runChildWorker() {
+        return new Promise<{ code: number | null; stderr: string }>((resolve) => {
+          const child = spawn(
+            process.execPath,
+            [
+              '--import',
+              'tsx',
+              '--input-type=module',
+              '-e',
+              `
+              import { FileReplayStore } from './src/identity/wallet-auth.js';
+              const store = new FileReplayStore(process.env.REPLAY_PATH);
+              const auth = JSON.parse(process.env.AUTH_DATA);
+              try {
+                store.consume(auth);
+                process.exit(0);
+              } catch (err) {
+                process.stderr.write(err.message || 'unknown error');
+                process.exit(1);
+              }
+              `,
+            ],
+            {
+              env: {
+                ...process.env,
+                REPLAY_PATH: tempFile,
+                AUTH_DATA: JSON.stringify(auth),
+              },
+            }
+          );
+
+          let stderr = '';
+          child.stderr.on('data', (d) => {
+            stderr += d.toString();
+          });
+          child.on('close', (code) => {
+            resolve({ code, stderr });
+          });
+        });
+      }
+
+      // Launch two independent child processes simultaneously
+      const [resA, resB] = await Promise.all([runChildWorker(), runChildWorker()]);
+
+      const exitCodes = [resA.code, resB.code].sort();
+      assert.deepStrictEqual(exitCodes, [0, 1], 'Exactly one child process must succeed (0) and one must fail (1)');
+
+      const failedResult = resA.code === 1 ? resA : resB;
+      assert.ok(
+        failedResult.stderr.includes('ReplayAttackDetected: worker authorization signature already consumed'),
+        `Failed process must output replay rejection error, got: ${failedResult.stderr}`
+      );
+
+      // Verify state in store
+      const store = new FileReplayStore(tempFile);
+      assert.strictEqual(store.isConsumed(auth), true);
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  });
+
+  it('MUST PREVENT CONCURRENT CONSUMPTION across contending child processes (same nonce, different signature)', async () => {
+    const tempFile = path.join(os.tmpdir(), `gigvault-concurrent-nonce-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const sharedNonce = 'contending-nonce-xyz-999';
+      const auth1 = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_NONCE_A',
+          expectedPassportId: 902,
+          nonce: sharedNonce,
+        },
+        rameshWallet
+      );
+
+      const auth2 = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_NONCE_B',
+          expectedPassportId: 903,
+          nonce: sharedNonce,
+        },
+        rameshWallet
+      );
+
+      function runChildWorker(authData: any) {
+        return new Promise<{ code: number | null; stderr: string }>((resolve) => {
+          const child = spawn(
+            process.execPath,
+            [
+              '--import',
+              'tsx',
+              '--input-type=module',
+              '-e',
+              `
+              import { FileReplayStore } from './src/identity/wallet-auth.js';
+              const store = new FileReplayStore(process.env.REPLAY_PATH);
+              const auth = JSON.parse(process.env.AUTH_DATA);
+              try {
+                store.consume(auth);
+                process.exit(0);
+              } catch (err) {
+                process.stderr.write(err.message || 'unknown error');
+                process.exit(1);
+              }
+              `,
+            ],
+            {
+              env: {
+                ...process.env,
+                REPLAY_PATH: tempFile,
+                AUTH_DATA: JSON.stringify(authData),
+              },
+            }
+          );
+
+          let stderr = '';
+          child.stderr.on('data', (d) => {
+            stderr += d.toString();
+          });
+          child.on('close', (code) => {
+            resolve({ code, stderr });
+          });
+        });
+      }
+
+      // Launch two independent child processes simultaneously with same nonce
+      const [resA, resB] = await Promise.all([runChildWorker(auth1), runChildWorker(auth2)]);
+
+      const exitCodes = [resA.code, resB.code].sort();
+      assert.deepStrictEqual(exitCodes, [0, 1], 'Exactly one process must succeed and one must fail on nonce reuse');
+
+      const failedResult = resA.code === 1 ? resA : resB;
+      assert.ok(
+        failedResult.stderr.includes(`ReplayAttackDetected: nonce ${sharedNonce} already consumed`),
+        `Failed process must output nonce replay rejection error, got: ${failedResult.stderr}`
+      );
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  });
+
+  it('MUST FAIL CLOSED on corrupted, malformed, or unreadable storage in FileReplayStore', async () => {
+    const tempFile = path.join(os.tmpdir(), `gigvault-corrupt-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_CORRUPT_1',
+          expectedPassportId: 904,
+        },
+        rameshWallet
+      );
+
+      // 1. Corrupted file with malformed JSON
+      fs.writeFileSync(tempFile, '{"signature": "0x123", invalid-json-syntax', 'utf8');
+      assert.throws(
+        () => new FileReplayStore(tempFile),
+        (err: any) => err instanceof FileReplayStoreCorruptedError && err.message.includes('malformed JSON'),
+        'Must throw FileReplayStoreCorruptedError on malformed JSON'
+      );
+
+      // 2. Corrupted file with empty whitespace
+      fs.writeFileSync(tempFile, '   \n  \t  ', 'utf8');
+      assert.throws(
+        () => new FileReplayStore(tempFile),
+        (err: any) => err instanceof FileReplayStoreCorruptedError && err.message.includes('empty or whitespace-only'),
+        'Must throw FileReplayStoreCorruptedError on empty whitespace file'
+      );
+
+      // 3. Corrupted file with non-array root
+      fs.writeFileSync(tempFile, JSON.stringify({ notAnArray: true }), 'utf8');
+      assert.throws(
+        () => new FileReplayStore(tempFile),
+        (err: any) => err instanceof FileReplayStoreCorruptedError && err.message.includes('root must be a JSON array'),
+        'Must throw FileReplayStoreCorruptedError on non-array root'
+      );
+
+      // 4. Corrupted file with invalid record schema (missing walletAddress, invalid timestamp)
+      fs.writeFileSync(tempFile, JSON.stringify([{ signature: '0x123', action: 'MINT_PASSPORT', timestamp: 'not-a-number' }]), 'utf8');
+      assert.throws(
+        () => new FileReplayStore(tempFile),
+        (err: any) => err instanceof FileReplayStoreCorruptedError && (err.message.includes('missing walletAddress') || err.message.includes('invalid timestamp')),
+        'Must validate stored records and throw FileReplayStoreCorruptedError'
+      );
+
+      // 5. Existing store whose file is corrupted after initialization must fail closed on subsequent operations
+      const cleanFile = path.join(os.tmpdir(), `gigvault-clean-corrupt-${Date.now()}.json`);
+      try {
+        const store = new FileReplayStore(cleanFile);
+        store.consume(auth);
+        assert.strictEqual(store.isConsumed(auth), true);
+
+        // File is corrupted externally on disk
+        fs.writeFileSync(cleanFile, 'CORRUPTED_DISK_DATA', 'utf8');
+
+        // Subsequent consume and isConsumed MUST fail closed, not accept or swallow
+        assert.throws(
+          () => store.isConsumed(auth),
+          (err: any) => err instanceof FileReplayStoreCorruptedError,
+          'isConsumed must fail closed when file is corrupted'
+        );
+
+        const newAuth = await signWorkerAuthorization(
+          {
+            action: 'MINT_PASSPORT',
+            workerWalletAddress: arjunWallet.address,
+            consentId: 'CONSENT_CORRUPT_2',
+            expectedPassportId: 905,
+          },
+          arjunWallet
+        );
+
+        assert.throws(
+          () => store.consume(newAuth),
+          (err: any) => err instanceof FileReplayStoreCorruptedError,
+          'consume must fail closed when file is corrupted'
+        );
+      } finally {
+        if (fs.existsSync(cleanFile)) fs.unlinkSync(cleanFile);
+        if (fs.existsSync(`${cleanFile}.lock`)) fs.unlinkSync(`${cleanFile}.lock`);
+      }
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  });
+
+  it('MUST PRESERVE VALID AUTHORIZATION across premature expiry boundaries (+301s clock skew) in MemoryReplayStore and FileReplayStore', async () => {
+    const tempFile = path.join(os.tmpdir(), `gigvault-expiry-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+    const lockFile = `${tempFile}.lock`;
+
+    try {
+      const consumptionTime = 1000000;
+      // Worker authorization signed 60 seconds ahead (valid within allowed +60s clock skew)
+      const authTimestamp = consumptionTime + 60; // 1000060
+
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_EXPIRY_1',
+          expectedPassportId: 906,
+          timestamp: authTimestamp,
+        },
+        rameshWallet
+      );
+
+      const memStore = new MemoryReplayStore();
+      const fileStore = new FileReplayStore(tempFile);
+
+      // Both stores consume at server time T = consumptionTime
+      memStore.consume(auth, { nowSec: consumptionTime });
+      fileStore.consume(auth, { nowSec: consumptionTime });
+
+      assert.strictEqual(memStore.isConsumed(auth), true);
+      assert.strictEqual(fileStore.isConsumed(auth), true);
+
+      // BOUNDARY 1: At consumptionTime + 301 seconds (T + 301 = 1000301)
+      // The signature age is: 1000301 - 1000060 = 241 seconds (<= 300s window).
+      // The signature is STILL FRESH and passes verification!
+      const time301 = consumptionTime + 301;
+      assert.strictEqual(
+        verifyWorkerAuthorization(auth, 300, time301),
+        true,
+        'Authorization must still be fresh and pass verification at T + 301s (age 241s)'
+      );
+
+      // pruneExpired at T + 301 must NOT prune the record
+      const prunedMem301 = memStore.pruneExpired(300, time301);
+      const prunedFile301 = fileStore.pruneExpired(300, time301);
+      assert.strictEqual(prunedMem301, 0, 'Memory store must retain record at T + 301s');
+      assert.strictEqual(prunedFile301, 0, 'File store must retain record at T + 301s');
+
+      assert.strictEqual(memStore.isConsumed(auth), true);
+      assert.strictEqual(fileStore.isConsumed(auth), true);
+
+      assert.throws(
+        () => memStore.consume(auth, { nowSec: time301 }),
+        /ReplayAttackDetected: worker authorization signature already consumed/
+      );
+      assert.throws(
+        () => fileStore.consume(auth, { nowSec: time301 }),
+        /ReplayAttackDetected: worker authorization signature already consumed/
+      );
+
+      // BOUNDARY 2: At authTimestamp + 300 seconds (exact boundary: 1000060 + 300 = 1000360)
+      // Age is exactly 300 seconds (last valid second).
+      const time360 = authTimestamp + 300;
+      assert.strictEqual(
+        verifyWorkerAuthorization(auth, 300, time360),
+        true,
+        'Authorization must still pass verification at exact 300s boundary (T + 360s)'
+      );
+
+      const prunedMem360 = memStore.pruneExpired(300, time360);
+      const prunedFile360 = fileStore.pruneExpired(300, time360);
+      assert.strictEqual(prunedMem360, 0, 'Memory store must retain record at exact 300s boundary');
+      assert.strictEqual(prunedFile360, 0, 'File store must retain record at exact 300s boundary');
+
+      assert.strictEqual(memStore.isConsumed(auth), true);
+      assert.strictEqual(fileStore.isConsumed(auth), true);
+
+      // BOUNDARY 3: At authTimestamp + 301 seconds (1000060 + 301 = 1000361)
+      // Age is 301 seconds (> 300s). The signature is now EXPIRED!
+      const time361 = authTimestamp + 301;
+      assert.throws(
+        () => verifyWorkerAuthorization(auth, 300, time361),
+        /Worker wallet authorization expired/,
+        'Authorization must be rejected as expired at T + 361s'
+      );
+
+      // Only now is it safe to prune the record
+      const prunedMem361 = memStore.pruneExpired(300, time361);
+      const prunedFile361 = fileStore.pruneExpired(300, time361);
+      assert.strictEqual(prunedMem361, 1, 'Memory store must prune expired record at T + 361s');
+      assert.strictEqual(prunedFile361, 1, 'File store must prune expired record at T + 361s');
+    } finally {
+      if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
   });
 });
