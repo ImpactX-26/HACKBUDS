@@ -42,13 +42,24 @@ export function normalizeAuthenticatedData(
   // Filter on or before cutoff
   const eligibleTxns = transactions.filter((t) => t.timestamp <= cutoffTs);
 
-  // Stable sort: timestamp ascending, then txnId ascending
+  // Stable sort: timestamp ascending, then bytewise ASCII txnId ascending (no locale dependency)
   const sortedTxns = [...eligibleTxns].sort((a, b) => {
     if (a.timestamp !== b.timestamp) {
       return a.timestamp - b.timestamp;
     }
-    return a.txnId.localeCompare(b.txnId);
+    const idA = a.txnId.trim();
+    const idB = b.txnId.trim();
+    return idA < idB ? -1 : (idA > idB ? 1 : 0);
   });
+
+  // Reject duplicate normalized transaction IDs
+  for (let i = 1; i < sortedTxns.length; i++) {
+    if (sortedTxns[i].txnId.trim() === sortedTxns[i - 1].txnId.trim()) {
+      throw new Error(
+        `Duplicate transaction ID detected in authenticated dataset: ${sortedTxns[i].txnId.trim()}`
+      );
+    }
+  }
 
   return {
     accountOwnerBinding: {

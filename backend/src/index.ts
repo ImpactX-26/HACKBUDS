@@ -17,6 +17,11 @@ export * from './evidence/normalizer.js';
 export * from './evidence/fip-verifier.js';
 export * from './evidence/snapshot-builder.js';
 export * from './evidence/attestation-service.js';
+export * from './evidence/passport-client.js';
+
+export * from './identity/types.js';
+export * from './identity/mock-idp.js';
+export * from './identity/wallet-auth.js';
 
 export * from './http/fip-app.js';
 export * from './http/attestation-app.js';
