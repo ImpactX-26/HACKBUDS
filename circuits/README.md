@@ -6,6 +6,19 @@ The single adapter now lives in `shared/proposal/poseidon5.ts`; the lab re-expor
 
 ## Reproduce locally for zero additional cost
 
+### Final cross-backend reconciliation (Backend A e991f903)
+
+The latest [v0.1.2 reconciliation report](../docs/review/BACKEND_B_FINAL_GATE1_RECONCILIATION_V0_1_2.md) independently confirms Backend A's 72 tests, typecheck and build, plus **29 new review checks** against fresh authenticated synthetic source data. Nine vectors match both real TypeScript adapters and both compiled Circom prototypes. All earlier 50 interoperability and 23 passport lifecycle tests remain passing. `KNOWN GAP` tests reproduce remaining unsafe upstream behavior; they do not approve it. This report supersedes the readiness assessment below for the old frozen upstream revision.
+
+From `circuits/` on tested Windows x64:
+
+```powershell
+npm run gate1:prepare
+npm run gate1:final
+```
+
+The first command downloads the exact public commit into ignored `.scratch/`, checks 54 source/test/lock Git blobs, installs Backend A's separate published lock and runs its actual checks. The second builds this lab and runs `test/final-gate1.test.mjs`. No teammate checkout is edited. Exact canonical UTF-8 bytes and vectors in `fixtures/backend-a-e991-*` are public synthetic fixtures; ephemeral keys/authorizations are not saved. Explicit `gate1:final:record` regenerates only after both adapters and compiled profiles agree. Format/range/domain constants remain provisional; see the report's required Backend A corrections and joint decisions.
+
 Run from `circuits/` with Node.js 24 and npm 11:
 
 ```powershell

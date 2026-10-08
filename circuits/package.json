@@ -9,7 +9,10 @@
     "test": "npm run build && node --test dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js",
     "fixtures:record": "npm run build && node scripts/record-vectors.mjs",
     "proof:smoke": "npm run build && node scripts/groth16-smoke.mjs",
-    "gate1:record": "npm run build && node scripts/record-backend-a.mjs"
+    "gate1:record": "npm run build && node scripts/record-backend-a.mjs",
+    "gate1:prepare": "powershell -NoProfile -File scripts/prepare-final-gate1.ps1",
+    "gate1:final": "npm run build && node --test test/final-gate1.test.mjs",
+    "gate1:final:record": "npm run build && node test/final-gate1.test.mjs --record"
   },
   "devDependencies": {
     "@types/node": "24.10.1",
