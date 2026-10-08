@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/GigPassport.test.mjs",
-    "auth:test": "node --test test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs"
+    "auth:test": "node --test test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs",
+    "prover:test": "node --test test/trusted-prover-b4.test.mjs",
+    "prover:types": "node ../circuits/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/trusted-prover-types.mts",
+    "deployment:test": "node --test test/local-deployment-b4.test.mjs",
+    "local:start": "node local/start.mjs",
+    "local:demo": "node local/demo.mjs"
   },
   "devDependencies": {
     "@openzeppelin/contracts": "5.4.0",

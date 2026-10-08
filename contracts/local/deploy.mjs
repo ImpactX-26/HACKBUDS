@@ -1,0 +1,50 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import ganache from 'ganache';
+import {JsonRpcProvider,ContractFactory,Wallet} from 'ethers';
+import {compile} from './compile.mjs';
+import {prepareLocalSetup} from './setup.mjs';
+import {protocolVersion,eligibilityProfile} from '../../circuits/service/trusted-prover.mjs';
+import {manifest as publicSignalOrder} from '../proposal/authorization-v02.mjs';
+export async function deployLocal({port=0}={}) {
+  const setup=await prepareLocalSetup();let server,provider;
+  try {
+    const artifacts=compile(readFileSync(setup.verifier,'utf8'));
+    server=ganache.server({logging:{quiet:true},wallet:{totalAccounts:6},
+      chain:{chainId:1337,hardfork:'shanghai',time:new Date('2026-10-09T00:00:00Z')}});
+    // Hardcoded loopback. No public-network deployment option is provided.
+    await server.listen(port,'127.0.0.1');
+    const rpcUrl=`http://127.0.0.1:${server.address().port}`;
+    provider=new JsonRpcProvider(rpcUrl,1337,{cacheTimeout:-1});provider.pollingInterval=10;
+    const signers=await Promise.all([0,1,2,3,4,5].map(i=>provider.getSigner(i)));
+    const addresses=await Promise.all(signers.map(s=>s.getAddress()));
+    const accounts=server.provider.getInitialAccounts();
+    const signing=address=>new Wallet(accounts[address.toLowerCase()].secretKey);
+    const entries={};const transactions=[];
+    const deploy=async(name,file,contract,args=[])=>{
+      const a=artifacts[file][contract];
+      const c=await new ContractFactory(a.abi,a.evm.bytecode.object,signers[0]).deploy(...args);
+      await c.waitForDeployment();transactions.push({action:'deploy '+name,hash:c.deploymentTransaction().hash});
+      const abi=resolve(setup.directory,name+'.abi.json');writeFileSync(abi,JSON.stringify(a.abi,null,2)+'\n');
+      entries[name]={address:await c.getAddress(),abi,contract};return c;
+    };
+    const passport=await deploy('passport','src/GigPassport.sol','GigPassport',[addresses[0],addresses[1]]);
+    const math=await deploy('math','Groth16Verifier.sol','Groth16Verifier');
+    const token=await deploy('token','src/proposal/MockUSDCV02.sol','MockUSDCV02');
+    const args=[await passport.getAddress(),await math.getAddress(),addresses[4]];
+    const gate=await deploy('gate','src/proposal/EligibilityGateV02.sol','EligibilityGateV02',args);
+    const welfare=await deploy('welfare','src/proposal/WelfareVaultV02.sol','WelfareVaultV02',args);
+    const loan=await deploy('loan','src/proposal/DemoLendingPoolV02.sol','DemoLendingPoolV02',[...args,await token.getAddress()]);
+    const funding=await token.transfer(await loan.getAddress(),1000n*10n**6n);await funding.wait();
+    transactions.push({action:'fund loan with 1000 MockUSDC',hash:funding.hash});
+    const manifest={protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.1.0',
+      localOnly:true,productionReady:false,chainId:1337,rpcUrl,setupId:setup.id,setupDigests:setup.digests,
+      contracts:entries,roles:{admin:addresses[0],attester:addresses[1],verifier:addresses[4]},
+      domain:{name:'GigVaultEligibility',version:'0.2-provisional',chainId:1337,verifyingContract:'per-consumer'},publicSignalOrder};
+    const manifestPath=resolve(setup.directory,'manifest.json');writeFileSync(manifestPath,JSON.stringify(manifest,null,2)+'\n');
+    console.log('Local contracts deployed. Manifest: '+manifestPath);
+    let closed=false;
+    return {setup,server,provider,signers,addresses,signing,passport,math,token,consumers:{gate,welfare,loan},
+      manifest,manifestPath,transactions,async close(){if(closed)return;closed=true;provider.destroy();await server.close();setup.cleanup();}};
+  } catch(error) {provider?.destroy();if(server?.address())await server.close();setup.cleanup();throw error;}
+}

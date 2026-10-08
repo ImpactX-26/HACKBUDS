@@ -1,4 +1,5 @@
 import {TypedDataEncoder,verifyTypedData} from 'ethers';
+export {TypedDataEncoder};
 
 // Backend B LOCAL proposal, NOT a frozen shared schema. Full bytes32 hashes
 // are represented by high/low uint128 limbs; no field reduction of signed IDs.
