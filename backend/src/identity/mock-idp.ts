@@ -23,14 +23,28 @@ export interface IssueAssertionParams {
 
 export class MockIdentityProvider {
   private keyPair: KeyPair;
+  private trustedIdpPublicKeys: Set<string>;
+  private registeredWorkers: Map<string, string> = new Map(); // identityNullifier -> walletAddress
   public readonly providerId = 'MOCK_IDP_UIDAI_SIMULATED' as const;
 
-  constructor(customKeyPair?: KeyPair) {
+  constructor(customKeyPair?: KeyPair, trustedPublicKeys?: string[]) {
     this.keyPair = customKeyPair || generateFipKeyPair();
+    this.trustedIdpPublicKeys = new Set(trustedPublicKeys || [this.keyPair.publicKeyPem]);
   }
 
   public getPublicKeyPem(): string {
     return this.keyPair.publicKeyPem;
+  }
+
+  public registerTrustedIdpKey(publicKeyPem: string): void {
+    this.trustedIdpPublicKeys.add(publicKeyPem);
+  }
+
+  /**
+   * Rebind worker identity to a new wallet address upon authorized recovery / key rotation.
+   */
+  public rebindWorkerWallet(workerIdentityNullifier: string, newWalletAddress: string): void {
+    this.registeredWorkers.set(workerIdentityNullifier.toLowerCase().trim(), newWalletAddress.toLowerCase().trim());
   }
 
   /**
@@ -50,16 +64,31 @@ export class MockIdentityProvider {
 
   /**
    * Issue a signed identity assertion for a worker's wallet.
+   * Enforces that an identity nullifier cannot be claimed by multiple conflicting wallets.
    */
   public issueAssertion(params: IssueAssertionParams): VerifiedIdentityAssertion {
     const { workerIdentityNullifier, workerWalletAddress, durationSeconds = 86400 } = params;
+
+    const cleanNullifier = workerIdentityNullifier.toLowerCase().trim();
+    const cleanWallet = workerWalletAddress.toLowerCase().trim();
+
+    // Check identity-wallet binding registry to prevent conflicting identity claims
+    const existing = this.registeredWorkers.get(cleanNullifier);
+    if (existing && existing !== cleanWallet) {
+      throw new Error(
+        `IdentityRegistrationConflict: identity nullifier ${cleanNullifier} is already registered to wallet ${existing}`
+      );
+    }
+    if (!existing) {
+      this.registeredWorkers.set(cleanNullifier, cleanWallet);
+    }
 
     const nowSec = Math.floor(Date.now() / 1000);
     const payload = {
       schemaVersion: 'GIGVAULT_IDENTITY_ASSERTION_V1' as const,
       providerId: this.providerId,
-      workerIdentityNullifier: workerIdentityNullifier.toLowerCase().trim(),
-      workerWalletAddress: workerWalletAddress.toLowerCase().trim(),
+      workerIdentityNullifier: cleanNullifier,
+      workerWalletAddress: cleanWallet,
       issuedAt: nowSec,
       expiresAt: nowSec + durationSeconds,
     };
@@ -76,11 +105,15 @@ export class MockIdentityProvider {
 
   /**
    * Cryptographically verify an identity assertion.
-   * Throws on tampering, expiry, or invalid signature.
+   * 
+   * Security Invariants:
+   * 1. Rejects untrusted / self-signed attacker public keys not in trustedIdpPublicKeys.
+   * 2. Uses trusted server clock for expiry. Never permits caller-supplied backdated timestamps.
+   * 3. Verifies cryptographic secp256k1 signature against pinned key.
    */
   public verifyAssertion(
     assertion: VerifiedIdentityAssertion,
-    currentTimestamp?: number
+    trustedServerTimeSec?: number
   ): { valid: boolean; workerIdentityNullifier: string; workerWalletAddress: string } {
     if (assertion.schemaVersion !== 'GIGVAULT_IDENTITY_ASSERTION_V1') {
       throw new Error(`Unsupported identity assertion schema: ${assertion.schemaVersion}`);
@@ -89,9 +122,18 @@ export class MockIdentityProvider {
       throw new Error(`Unrecognized identity provider: ${assertion.providerId}`);
     }
 
-    const nowSec = currentTimestamp ?? Math.floor(Date.now() / 1000);
+    // PINNED TRUST CHECK: Reject attacker-controlled / self-signed keys
+    if (!this.trustedIdpPublicKeys.has(assertion.idpPublicKey)) {
+      throw new Error('Untrusted identity provider public key: key not recognized by Attestation Authority');
+    }
+
+    // Always use trusted server clock
+    const nowSec = trustedServerTimeSec ?? Math.floor(Date.now() / 1000);
     if (nowSec > assertion.expiresAt) {
-      throw new Error(`Identity assertion expired at ${assertion.expiresAt} (current: ${nowSec})`);
+      throw new Error(`Identity assertion expired at ${assertion.expiresAt} (server time: ${nowSec})`);
+    }
+    if (assertion.issuedAt > nowSec + 60) {
+      throw new Error(`Identity assertion issuedAt is in the future: ${assertion.issuedAt}`);
     }
 
     const hash = this.hashAssertion({

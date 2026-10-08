@@ -26,13 +26,19 @@ export class MockFIPService {
 
   /**
    * Server-to-server signed transaction data fetch by consentId.
+   * 
+   * Security Invariant:
+   * Consent validity is evaluated against trusted server time. Caller-supplied
+   * evidenceCutoffTimestamp is strictly used to bound transactions for calendar aggregation
+   * and NEVER influences consent validity or expiration.
    */
   public fetchSignedDataByConsent(
     consentId: string,
-    currentTimestamp?: number
+    evidenceCutoffTimestamp?: number,
+    trustedServerTimeSec?: number
   ): SignedFIPEnvelope {
-    // 1. Retrieve and validate consent
-    const consent = this.consentService.getConsent(consentId, currentTimestamp);
+    // 1. Retrieve and validate consent using trusted server time (NOT evidence cutoff!)
+    const consent = this.consentService.getConsent(consentId, trustedServerTimeSec);
 
     if (consent.status === 'EXPIRED') {
       throw new Error(`FIP consent expired: consentId ${consentId} has passed expiry`);
@@ -50,15 +56,18 @@ export class MockFIPService {
       throw new Error(`Account record missing for consented account: ${consent.accountId}`);
     }
 
-    // 3. Fetch transactions within consented scope
+    // 3. Fetch transactions within consented scope and optional evidence cutoff
     const allTxns = this.storage.getTransactions(consent.accountId);
     const fromTs = consent.scope.fromTimestamp;
-    const toTs = consent.scope.toTimestamp;
+    const maxToTs = consent.scope.toTimestamp;
+    const effectiveToTs = evidenceCutoffTimestamp !== undefined
+      ? Math.min(maxToTs, evidenceCutoffTimestamp)
+      : maxToTs;
 
-    const scopedTxns = allTxns.filter((txn) => txn.timestamp >= fromTs && txn.timestamp <= toTs);
+    const scopedTxns = allTxns.filter((txn) => txn.timestamp >= fromTs && txn.timestamp <= effectiveToTs);
 
     // 4. Construct canonical signed payload
-    const nowSec = currentTimestamp ?? Math.floor(Date.now() / 1000);
+    const nowSec = trustedServerTimeSec ?? Math.floor(Date.now() / 1000);
     const payload: SignedFIPPayload = {
       schemaVersion: 'GIGVAULT_FIP_MOCK_V1',
       fipId: this.fipId,
@@ -67,7 +76,7 @@ export class MockFIPService {
       accountOwnerBinding: accountBinding,
       dataRange: {
         fromTimestamp: fromTs,
-        toTimestamp: toTs,
+        toTimestamp: effectiveToTs,
       },
       transactions: scopedTxns,
       generatedAt: nowSec,

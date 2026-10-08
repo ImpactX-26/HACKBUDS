@@ -19,15 +19,24 @@ export function formatWorkerAuthMessage(auth: {
   consentId: string;
   expectedPassportId: number;
   timestamp: number;
+  chainId?: number;
+  nonce?: string;
 }): string {
-  return [
+  const lines = [
     'GigVault Worker Action Authorization',
     `Action: ${auth.action}`,
     `Wallet: ${auth.workerWalletAddress.toLowerCase().trim()}`,
     `Consent: ${auth.consentId.trim()}`,
     `Expected Passport ID: ${auth.expectedPassportId}`,
     `Timestamp: ${auth.timestamp}`,
-  ].join('\n');
+  ];
+  if (auth.chainId !== undefined) {
+    lines.push(`Chain ID: ${auth.chainId}`);
+  }
+  if (auth.nonce !== undefined) {
+    lines.push(`Nonce: ${auth.nonce}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -40,6 +49,8 @@ export async function signWorkerAuthorization(
     consentId: string;
     expectedPassportId: number;
     timestamp?: number;
+    chainId?: number;
+    nonce?: string;
   },
   wallet: { signMessage: (message: string | Uint8Array) => Promise<string> }
 ): Promise<WorkerWalletAuthorization> {
@@ -50,6 +61,8 @@ export async function signWorkerAuthorization(
     consentId: params.consentId,
     expectedPassportId: params.expectedPassportId,
     timestamp,
+    chainId: params.chainId,
+    nonce: params.nonce,
   });
 
   const signature = await wallet.signMessage(msg);
@@ -61,27 +74,34 @@ export async function signWorkerAuthorization(
     expectedPassportId: params.expectedPassportId,
     timestamp,
     signature,
+    chainId: params.chainId,
+    nonce: params.nonce,
   };
 }
 
 /**
  * Cryptographically verify worker wallet authorization signature.
  * Throws if signature is forged, signer mismatches, or timestamp is stale.
+ * 
+ * Invariant:
+ * Enforces trusted server clock freshness check. Never permits client-supplied
+ * backdated historical timestamps to revive expired authorizations.
  */
 export function verifyWorkerAuthorization(
   auth: WorkerWalletAuthorization,
   maxAgeSeconds = 300, // 5 minutes freshness window
-  currentTimestamp?: number
+  trustedServerTimeSec?: number
 ): boolean {
   if (!auth.signature || typeof auth.signature !== 'string') {
     throw new Error('Worker wallet authorization signature missing');
   }
 
-  const nowSec = currentTimestamp ?? Math.floor(Date.now() / 1000);
+  // Always use trusted server clock
+  const nowSec = trustedServerTimeSec ?? Math.floor(Date.now() / 1000);
 
-  // Freshness check
+  // Freshness check against trusted server time
   if (nowSec - auth.timestamp > maxAgeSeconds) {
-    throw new Error(`Worker wallet authorization expired: signed at ${auth.timestamp}, current ${nowSec}`);
+    throw new Error(`Worker wallet authorization expired: signed at ${auth.timestamp}, server time ${nowSec}`);
   }
   if (auth.timestamp > nowSec + 60) {
     throw new Error(`Worker wallet authorization timestamp is in the future: ${auth.timestamp}`);
@@ -93,6 +113,8 @@ export function verifyWorkerAuthorization(
     consentId: auth.consentId,
     expectedPassportId: auth.expectedPassportId,
     timestamp: auth.timestamp,
+    chainId: auth.chainId,
+    nonce: auth.nonce,
   });
 
   let recoveredAddress: string;

@@ -12,7 +12,11 @@
  *    - Fresh authenticated bank evidence
  *    - On-chain reissue authorization by ADMIN_ROLE
  *    - Consumption of reissue authorization upon replacement mint.
- * 7. Negative security checks: attacker trying to mint without valid tripartite link.
+ * 7. Contention handling: rejected unauthorized retry vs authorized re-signing retry.
+ * 8. Negative security checks: attacker trying to mint without valid tripartite link.
+ * 
+ * Note: Uses MockGigPassportContract as an in-memory state-machine test adapter.
+ * Not real on-chain Polygon Amoy execution.
  */
 
 import { describe, it } from 'node:test';
@@ -27,16 +31,16 @@ import { MockIdentityProvider } from '../src/identity/mock-idp.js';
 import { signWorkerAuthorization } from '../src/identity/wallet-auth.js';
 import { PERSONAS } from '../src/fip/personas/index.js';
 
-describe('GigPassport Contract Integration & State Machine', () => {
+describe('GigPassport Contract Integration & State Machine (Mock Adapter)', () => {
   const adminWallet = ethers.Wallet.createRandom();
   const attesterWallet = ethers.Wallet.createRandom();
   const workerWallet = ethers.Wallet.createRandom();
   const attackerWallet = ethers.Wallet.createRandom();
 
-  const idp = new MockIdentityProvider();
   const fixedCutoff = Date.UTC(2026, 9, 8, 12, 0, 0) / 1000;
 
   function createTestSetup() {
+    const idp = new MockIdentityProvider();
     const storage = new MockFIPStorage();
     const consentService = new ConsentService(storage);
     const fipService = new MockFIPService(storage, consentService);
@@ -50,15 +54,16 @@ describe('GigPassport Contract Integration & State Machine', () => {
       attesterWallet.address
     );
 
-    return { storage, consentService, fipService, attestationService, passportContract };
+    return { storage, consentService, fipService, attestationService, passportContract, idp };
   }
 
   it('MUST ENFORCE: only dedicated ATTESTER_ROLE can mint passports', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
 
     const consent = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -69,6 +74,13 @@ describe('GigPassport Contract Integration & State Machine', () => {
       durationSeconds: 3600,
     });
 
+    const auth = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: workerWallet.address,
+      consentId: consent.consentId,
+      expectedPassportId: 1,
+    }, workerWallet);
+
     // Derive snapshot via attestation service
     const attestation = attestationService.attestWorkerEvidence({
       consentId: consent.consentId,
@@ -77,6 +89,7 @@ describe('GigPassport Contract Integration & State Machine', () => {
       expectedPassportId: 1,
       cutoffTimestamp: fixedCutoff,
       identityAssertion: assertion,
+      walletAuthorization: auth,
     });
 
     const dummyEvidence = {
@@ -107,19 +120,24 @@ describe('GigPassport Contract Integration & State Machine', () => {
     const passportId = await passportContract.mint(
       1,
       workerWallet.address,
-      ramesh.identityNullifierHash,
+      ramameshIdentity(),
       dummyEvidence,
       attesterWallet.address
     );
     assert.strictEqual(passportId, 1, 'Initial passport ID must be 1');
+
+    function ramameshIdentity() {
+      return ramesh.identityNullifierHash;
+    }
   });
 
   it('MUST PREVENT: duplicate ACTIVE passport for same worker identity', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
 
     const consent = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -130,20 +148,36 @@ describe('GigPassport Contract Integration & State Machine', () => {
       durationSeconds: 3600,
     });
 
+    const auth1 = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: workerWallet.address,
+      consentId: consent.consentId,
+      expectedPassportId: 1,
+    }, workerWallet);
+
     // First mint succeeds
     const res1 = await attestationService.attestAndMintOnChain(
       {
         consentId: consent.consentId,
         workerWalletAddress: workerWallet.address,
         workerIdentityNullifier: ramesh.identityNullifierHash,
+        expectedPassportId: 1,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertion,
+        walletAuthorization: auth1,
       },
       passportContract
     );
     assert.strictEqual(res1.passportId, 1);
 
     // Second mint attempt for the SAME worker identity MUST REJECT
+    const auth2 = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: workerWallet.address,
+      consentId: consent.consentId,
+      expectedPassportId: 2,
+    }, workerWallet);
+
     await assert.rejects(
       async () => {
         await attestationService.attestAndMintOnChain(
@@ -151,8 +185,10 @@ describe('GigPassport Contract Integration & State Machine', () => {
             consentId: consent.consentId,
             workerWalletAddress: workerWallet.address,
             workerIdentityNullifier: ramesh.identityNullifierHash,
+            expectedPassportId: 2,
             cutoffTimestamp: fixedCutoff,
             identityAssertion: assertion,
+            walletAuthorization: auth2,
           },
           passportContract
         );
@@ -162,7 +198,7 @@ describe('GigPassport Contract Integration & State Machine', () => {
   });
 
   it('Contention handling: atomic recompute and retry on ExpectedIdMismatch', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
     const suresh = PERSONAS.SURESH;
 
@@ -171,6 +207,7 @@ describe('GigPassport Contract Integration & State Machine', () => {
 
     const consentRamesh = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -181,6 +218,7 @@ describe('GigPassport Contract Integration & State Machine', () => {
 
     const consentSuresh = consentService.createConsent({
       accountId: suresh.accountId,
+      authorizedIdentityNullifier: suresh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -211,40 +249,89 @@ describe('GigPassport Contract Integration & State Machine', () => {
       /ExpectedIdMismatch: expected 999, actual 1/
     );
 
-    // Simulate concurrent issuance where suresh mints ID 1 first
+    // Suresh mints passport ID 1 first
+    const sureshAuth = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: sureshWallet.address,
+      consentId: consentSuresh.consentId,
+      expectedPassportId: 1,
+    }, sureshWallet);
+
     const sureshRes = await attestationService.attestAndMintOnChain(
       {
         consentId: consentSuresh.consentId,
         workerWalletAddress: sureshWallet.address,
         workerIdentityNullifier: suresh.identityNullifierHash,
+        expectedPassportId: 1,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertionSuresh,
+        walletAuthorization: sureshAuth,
       },
       passportContract
     );
     assert.strictEqual(sureshRes.passportId, 1);
 
-    // Ramesh's attestation automatically picks up next ID (2) and succeeds
+    // Ramesh's wallet initially signed for expectedPassportId: 1 (which is now taken!)
+    const rameshAuthOld = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: rameshWallet.address,
+      consentId: consentRamesh.consentId,
+      expectedPassportId: 1, // Signed for 1!
+    }, rameshWallet);
+
+    // 1. Calling WITHOUT reauthorization callback MUST REJECT (fail closed, never silently alter expectedId)
+    await assert.rejects(
+      async () => {
+        await attestationService.attestAndMintOnChain(
+          {
+            consentId: consentRamesh.consentId,
+            workerWalletAddress: rameshWallet.address,
+            workerIdentityNullifier: ramesh.identityNullifierHash,
+            expectedPassportId: 1,
+            cutoffTimestamp: fixedCutoff,
+            identityAssertion: assertionRamesh,
+            walletAuthorization: rameshAuthOld,
+          },
+          passportContract
+          // No reauthorizeWorker callback provided!
+        );
+      },
+      /ExpectedIdMismatch: requested passport ID 1 does not match contract next ID 2; worker reauthorization required/
+    );
+
+    // 2. Calling WITH reauthorization callback prompts wallet to re-sign for ID 2 and succeeds!
     const rameshRes = await attestationService.attestAndMintOnChain(
       {
         consentId: consentRamesh.consentId,
         workerWalletAddress: rameshWallet.address,
         workerIdentityNullifier: ramesh.identityNullifierHash,
+        expectedPassportId: 1,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertionRamesh,
+        walletAuthorization: rameshAuthOld,
       },
-      passportContract
+      passportContract,
+      async (newId: number) => {
+        // Re-authorize with fresh signature for new sequential ID
+        return signWorkerAuthorization({
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: consentRamesh.consentId,
+          expectedPassportId: newId,
+        }, rameshWallet);
+      }
     );
     assert.strictEqual(rameshRes.passportId, 2);
     assert.strictEqual(rameshRes.attestation.passportId, 2);
   });
 
   it('Terminal revocation and Authorized Reissue lifecycle (Recovery)', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
 
     const consent1 = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -253,14 +340,23 @@ describe('GigPassport Contract Integration & State Machine', () => {
       workerWalletAddress: workerWallet.address,
     });
 
+    const auth1 = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: workerWallet.address,
+      consentId: consent1.consentId,
+      expectedPassportId: 1,
+    }, workerWallet);
+
     // 1. Initial Mint
     const initial = await attestationService.attestAndMintOnChain(
       {
         consentId: consent1.consentId,
         workerWalletAddress: workerWallet.address,
         workerIdentityNullifier: ramesh.identityNullifierHash,
+        expectedPassportId: 1,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertion1,
+        walletAuthorization: auth1,
       },
       passportContract
     );
@@ -288,14 +384,23 @@ describe('GigPassport Contract Integration & State Machine', () => {
     // 3. Attempting reissue without Admin Authorization MUST REJECT
     const consent2 = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
     const newWorkerWallet = ethers.Wallet.createRandom(); // Worker recovered with new key
+    idp.rebindWorkerWallet(ramesh.identityNullifierHash, newWorkerWallet.address);
     const assertion2 = idp.issueAssertion({
       workerIdentityNullifier: ramesh.identityNullifierHash, // Same stable identity!
       workerWalletAddress: newWorkerWallet.address,
     });
+
+    const auth2 = await signWorkerAuthorization({
+      action: 'REISSUE_PASSPORT',
+      workerWalletAddress: newWorkerWallet.address,
+      consentId: consent2.consentId,
+      expectedPassportId: 2,
+    }, newWorkerWallet);
 
     await assert.rejects(
       async () => {
@@ -304,8 +409,10 @@ describe('GigPassport Contract Integration & State Machine', () => {
             consentId: consent2.consentId,
             workerWalletAddress: newWorkerWallet.address,
             workerIdentityNullifier: ramesh.identityNullifierHash,
+            expectedPassportId: 2,
             cutoffTimestamp: fixedCutoff,
             identityAssertion: assertion2,
+            walletAuthorization: auth2,
           },
           passportContract
         );
@@ -332,8 +439,10 @@ describe('GigPassport Contract Integration & State Machine', () => {
         consentId: consent2.consentId,
         workerWalletAddress: newWorkerWallet.address,
         workerIdentityNullifier: ramesh.identityNullifierHash,
+        expectedPassportId: 2,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertion2,
+        walletAuthorization: auth2,
       },
       passportContract
     );
@@ -349,11 +458,12 @@ describe('GigPassport Contract Integration & State Machine', () => {
   });
 
   it('Evidence Refresh lifecycle: requires modified commitment and non-regressed timestamp', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
 
     const consent = consentService.createConsent({
       accountId: ramesh.accountId,
+      authorizedIdentityNullifier: ramesh.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -362,13 +472,22 @@ describe('GigPassport Contract Integration & State Machine', () => {
       workerWalletAddress: workerWallet.address,
     });
 
+    const auth = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: workerWallet.address,
+      consentId: consent.consentId,
+      expectedPassportId: 1,
+    }, workerWallet);
+
     const initial = await attestationService.attestAndMintOnChain(
       {
         consentId: consent.consentId,
         workerWalletAddress: workerWallet.address,
         workerIdentityNullifier: ramesh.identityNullifierHash,
+        expectedPassportId: 1,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertion,
+        walletAuthorization: auth,
       },
       passportContract
     );
@@ -430,12 +549,13 @@ describe('GigPassport Contract Integration & State Machine', () => {
   });
 
   it('MUST PREVENT: attacker minting using forged tripartite binding', async () => {
-    const { consentService, attestationService, passportContract } = createTestSetup();
+    const { consentService, attestationService, passportContract, idp } = createTestSetup();
     const ramesh = PERSONAS.RAMESH;
 
     // Attacker gets valid consent for their own bank account (e.g. Arjun)
     const consent = consentService.createConsent({
       accountId: PERSONAS.ARJUN.accountId,
+      authorizedIdentityNullifier: PERSONAS.ARJUN.identityNullifierHash,
       durationSeconds: 3600,
       toTimestamp: fixedCutoff,
     });
@@ -446,6 +566,13 @@ describe('GigPassport Contract Integration & State Machine', () => {
       workerWalletAddress: attackerWallet.address,
     });
 
+    const attackerAuth = await signWorkerAuthorization({
+      action: 'MINT_PASSPORT',
+      workerWalletAddress: attackerWallet.address,
+      consentId: consent.consentId,
+      expectedPassportId: 1,
+    }, attackerWallet);
+
     // Attacker attempts to claim Ramesh's identity nullifier on-chain
     await assert.rejects(
       async () => {
@@ -454,8 +581,10 @@ describe('GigPassport Contract Integration & State Machine', () => {
             consentId: consent.consentId,
             workerWalletAddress: attackerWallet.address,
             workerIdentityNullifier: ramesh.identityNullifierHash, // Spoofed target identity!
+            expectedPassportId: 1,
             cutoffTimestamp: fixedCutoff,
             identityAssertion: attackerAssertion,
+            walletAuthorization: attackerAuth,
           },
           passportContract
         );

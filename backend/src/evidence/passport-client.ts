@@ -50,8 +50,16 @@ export interface IGigPassportClient {
 }
 
 /**
- * High-fidelity in-memory contract adapter matching GigPassport.sol.
- * Used for integration testing the attestation service against real contract semantics.
+ * LOCAL MOCK TEST SIMULATOR ONLY:
+ * In-memory contract adapter modeling GigPassport.sol state transitions for unit testing.
+ * 
+ * IMPORTANT ARCHITECTURAL BOUNDARY:
+ * This is NOT the deployed Solidity contract or a live EVM instance. Real on-chain
+ * transactions and verified Poseidon commitments remain deferred until Backend B's
+ * shared cryptographic adapter is finalized and approved.
+ * 
+ * Mock commitments generated with temporary digests are strictly blocked from being
+ * broadcast to live networks (Polygon Amoy / Mainnet).
  */
 export class MockGigPassportContract implements IGigPassportClient {
   public readonly adminAddress: string;

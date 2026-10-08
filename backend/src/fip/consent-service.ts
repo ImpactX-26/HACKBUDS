@@ -14,6 +14,7 @@ import type { ConsentRecord, ConsentScope } from './types.js';
 
 export interface CreateConsentParams {
   accountId: string;
+  authorizedIdentityNullifier?: string; // Identity nullifier of caller authorized to access this account
   durationSeconds?: number; // Default 3600 (1 hour)
   fromTimestamp?: number; // Start of transaction window (Unix seconds)
   toTimestamp?: number; // End of transaction window (Unix seconds)
@@ -28,10 +29,12 @@ export class ConsentService {
 
   /**
    * Create a new consent record for an authentic bank account.
+   * Enforces that caller must be authorized to consent for the account.
    */
   public createConsent(params: CreateConsentParams): ConsentRecord {
     const {
       accountId,
+      authorizedIdentityNullifier,
       durationSeconds = 3600, // 1 hour default validity
       fromTimestamp = 0,
       toTimestamp = Math.floor(Date.now() / 1000),
@@ -41,6 +44,16 @@ export class ConsentService {
     const account = this.storage.getAccountBinding(accountId);
     if (!account) {
       throw new Error(`Account not found in Mock FIP: ${accountId}`);
+    }
+
+    // Account ownership authorization check
+    if (authorizedIdentityNullifier) {
+      const cleanNullifier = authorizedIdentityNullifier.toLowerCase().trim();
+      if (account.identityNullifierHash.toLowerCase().trim() !== cleanNullifier) {
+        throw new Error(
+          `UnauthorizedConsentCreation: identity ${cleanNullifier} is not authorized to create consent for account ${accountId}`
+        );
+      }
     }
 
     const nowSec = Math.floor(Date.now() / 1000);
@@ -67,17 +80,17 @@ export class ConsentService {
   }
 
   /**
-   * Retrieve consent and evaluate expiration state.
+   * Retrieve consent and evaluate expiration state against trusted server clock.
    */
-  public getConsent(consentId: string, currentTimestamp?: number): ConsentRecord {
+  public getConsent(consentId: string, trustedServerTimeSec?: number): ConsentRecord {
     const consent = this.storage.getConsent(consentId);
     if (!consent) {
       throw new Error(`Consent record not found: ${consentId}`);
     }
 
-    const nowSec = currentTimestamp ?? Math.floor(Date.now() / 1000);
+    const nowSec = trustedServerTimeSec ?? Math.floor(Date.now() / 1000);
 
-    // If status is ACTIVE but expiry has passed, transition to EXPIRED
+    // If status is ACTIVE but expiry has passed according to server clock, transition to EXPIRED
     if (consent.status === 'ACTIVE' && nowSec > consent.expiresAt) {
       this.storage.updateConsentStatus(consentId, 'EXPIRED');
       consent.status = 'EXPIRED';

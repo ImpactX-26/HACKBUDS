@@ -144,13 +144,11 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
     // 1. Expired consent
     const consent1 = consentService.createConsent({
       accountId: PERSONAS.RAMESH.accountId,
-      durationSeconds: 100, // Expires after 100 seconds
+      durationSeconds: -1, // Expired immediately
     });
 
-    // Fast-forward past expiry
-    const futureSec = Math.floor(Date.now() / 1000) + 500;
     assert.throws(
-      () => fipService.fetchSignedDataByConsent(consent1.consentId, futureSec),
+      () => fipService.fetchSignedDataByConsent(consent1.consentId),
       /FIP consent expired/,
       'Must reject expired consent'
     );

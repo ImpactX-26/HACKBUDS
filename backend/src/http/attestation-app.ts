@@ -39,7 +39,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     fipBaseUrl,
     trustedFipPublicKeys,
     idp = defaultMockIdp,
-    strictAuthentication = false,
+    strictAuthentication = true, // FAIL-CLOSED DEFAULT: Mandatory worker authentication
   } = options;
 
   const app = express();
@@ -54,7 +54,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     }
     if (fipBaseUrl) {
       const url = new URL(`${fipBaseUrl}/fip/data/${consentId}`);
-      if (cutoffTs) url.searchParams.set('currentTimestamp', String(cutoffTs));
+      if (cutoffTs) url.searchParams.set('cutoffTimestamp', String(cutoffTs));
       const res = await fetch(url.toString());
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as any;
@@ -123,7 +123,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       const cleanWallet = workerWalletAddress.toLowerCase().trim();
       const cleanNullifier = workerIdentityNullifier.toLowerCase().trim();
 
-      // INVARIANT CHECK 2: Strict Authentication Check (when enabled or when artifacts supplied)
+      // INVARIANT CHECK 2: Mandatory Authentication Check (fail closed)
       if (strictAuthentication && (!identityAssertion || !walletAuthorization)) {
         res.status(401).json({
           error: 'AUTHENTICATION_REQUIRED',
@@ -132,10 +132,11 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         return;
       }
 
-      // Step A: Verify Identity Assertion if provided
+      // Step A: Verify Identity Assertion
       if (identityAssertion) {
         try {
-          const idpResult = idp.verifyAssertion(identityAssertion, cutoffTimestamp);
+          // Trusted server clock check (NEVER client-supplied cutoffTimestamp!)
+          const idpResult = idp.verifyAssertion(identityAssertion);
           if (idpResult.workerWalletAddress !== cleanWallet) {
             res.status(403).json({
               error: 'IDENTITY_WALLET_MISMATCH',
@@ -159,7 +160,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         }
       }
 
-      // Step B: Verify Wallet Authorization if provided
+      // Step B: Verify Wallet Authorization
       if (walletAuthorization) {
         try {
           if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
@@ -183,7 +184,8 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
             });
             return;
           }
-          verifyWorkerAuthorization(walletAuthorization, 300, cutoffTimestamp);
+          // Freshness against trusted server clock
+          verifyWorkerAuthorization(walletAuthorization, 300);
         } catch (err: any) {
           res.status(401).json({
             error: 'WALLET_AUTHORIZATION_INVALID',
@@ -196,7 +198,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       // Step C: Fetch directly from Mock FIP
       const envelope = await fetchFipEnvelope(consentId, cutoffTimestamp);
 
-      // Step D: Verify FIP signature & account-owner identity matching gate
+      // Step D: Verify FIP signature & account-owner identity matching gate (fail closed)
       const verification = fipVerifier.verifyEnvelope(envelope, cleanNullifier);
 
       // Step E: Derive transient in-memory EvidenceSnapshot
@@ -230,7 +232,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       const msg = err.message || 'Attestation failed';
       if (msg.includes('Account owner binding mismatch')) {
         res.status(403).json({ error: 'ACCOUNT_OWNER_MISMATCH', message: msg });
-      } else if (msg.includes('FIP signature invalid') || msg.includes('payload hash mismatch')) {
+      } else if (msg.includes('FIP signature invalid') || msg.includes('payload hash mismatch') || msg.includes('Untrusted FIP public key')) {
         res.status(400).json({ error: 'FIP_SIGNATURE_INVALID', message: msg });
       } else if (msg.includes('expired')) {
         res.status(410).json({ error: 'FIP_CONSENT_EXPIRED', message: msg });
@@ -242,7 +244,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     }
   });
 
-  // 3. Deterministic Evidence Reconstruction (for ZK Prover)
+  // 3. Deterministic Evidence Reconstruction (for authorized ZK Prover)
   app.post('/attestation/reconstruct', async (req: Request, res: Response) => {
     try {
       const {
@@ -252,6 +254,8 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         passportId,
         sourceDirectoryVersion,
         evidenceUpdatedAt,
+        identityAssertion,
+        walletAuthorization,
       } = req.body;
 
       if (!consentId || !workerWalletAddress || !workerIdentityNullifier || passportId === undefined) {
@@ -263,17 +267,78 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         return;
       }
 
+      // INVARIANT CHECK: Reconstruction requires authenticated worker authorization
+      if (strictAuthentication && (!identityAssertion || !walletAuthorization)) {
+        res.status(401).json({
+          error: 'AUTHENTICATION_REQUIRED',
+          message: 'Evidence reconstruction requires verified identityAssertion and worker walletAuthorization.',
+        });
+        return;
+      }
+
+      const cleanWallet = workerWalletAddress.toLowerCase().trim();
+      const cleanNullifier = workerIdentityNullifier.toLowerCase().trim();
+
+      // Verify Identity Assertion if provided
+      if (identityAssertion) {
+        try {
+          const idpResult = idp.verifyAssertion(identityAssertion);
+          if (idpResult.workerWalletAddress !== cleanWallet || idpResult.workerIdentityNullifier !== cleanNullifier) {
+            res.status(403).json({
+              error: 'IDENTITY_MISMATCH',
+              message: 'Identity assertion does not match requested worker identity or wallet',
+            });
+            return;
+          }
+        } catch (err: any) {
+          res.status(403).json({
+            error: 'IDENTITY_ASSERTION_INVALID',
+            message: err.message || 'Identity assertion verification failed',
+          });
+          return;
+        }
+      }
+
+      // Verify Wallet Authorization if provided
+      if (walletAuthorization) {
+        try {
+          if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
+            res.status(401).json({ error: 'WALLET_SIGNER_MISMATCH' });
+            return;
+          }
+          if (walletAuthorization.action !== 'RECONSTRUCT_EVIDENCE') {
+            res.status(401).json({ error: 'INVALID_ACTION', message: 'Action must be RECONSTRUCT_EVIDENCE' });
+            return;
+          }
+          if (walletAuthorization.consentId !== consentId) {
+            res.status(401).json({ error: 'CONSENT_MISMATCH' });
+            return;
+          }
+          if (walletAuthorization.expectedPassportId !== passportId) {
+            res.status(401).json({ error: 'PASSPORT_ID_MISMATCH' });
+            return;
+          }
+          verifyWorkerAuthorization(walletAuthorization, 300);
+        } catch (err: any) {
+          res.status(401).json({
+            error: 'WALLET_AUTHORIZATION_INVALID',
+            message: err.message || 'Worker wallet authorization signature verification failed',
+          });
+          return;
+        }
+      }
+
       // Re-fetch authenticated transactions under valid consent
       const envelope = await fetchFipEnvelope(consentId, evidenceUpdatedAt);
 
       // Verify signature & owner binding
-      const verification = fipVerifier.verifyEnvelope(envelope, workerIdentityNullifier);
+      const verification = fipVerifier.verifyEnvelope(envelope, cleanNullifier);
 
       // Deterministically reconstruct snapshot using exact historical parameters
       const { snapshot } = EvidenceSnapshotBuilder.buildSnapshot({
         fipPayload: verification.payload,
         passportId,
-        holderWallet: workerWalletAddress,
+        holderWallet: cleanWallet,
         evidenceUpdatedAt,
         sourceDirectoryVersion,
       });

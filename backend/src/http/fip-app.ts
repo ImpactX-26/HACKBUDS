@@ -49,14 +49,17 @@ export function createFipApp(options: FipAppOptions): Express {
   // 2. Create consent record
   app.post('/fip/consent', (req: Request, res: Response) => {
     try {
-      const { accountId, durationSeconds, fromTimestamp, toTimestamp } = req.body;
+      const { accountId, durationSeconds, fromTimestamp, toTimestamp, authorizedIdentityNullifier } = req.body;
       if (!accountId || typeof accountId !== 'string') {
         res.status(400).json({ error: 'Missing or invalid accountId' });
         return;
       }
 
+      const nullifier = authorizedIdentityNullifier || req.headers['x-worker-identity-nullifier'];
+
       const consent = consentService.createConsent({
         accountId,
+        authorizedIdentityNullifier: typeof nullifier === 'string' ? nullifier : undefined,
         durationSeconds: durationSeconds ? Number(durationSeconds) : undefined,
         fromTimestamp: fromTimestamp ? Number(fromTimestamp) : undefined,
         toTimestamp: toTimestamp ? Number(toTimestamp) : undefined,
@@ -64,16 +67,19 @@ export function createFipApp(options: FipAppOptions): Express {
 
       res.status(201).json({ success: true, consent });
     } catch (err: any) {
-      res.status(400).json({ error: err.message || 'Failed to create consent' });
+      if (err.message && err.message.includes('UnauthorizedConsentCreation')) {
+        res.status(403).json({ error: 'UNAUTHORIZED_CONSENT_CREATION', message: err.message });
+      } else {
+        res.status(400).json({ error: err.message || 'Failed to create consent' });
+      }
     }
   });
 
-  // 3. Inspect consent status
+  // 3. Inspect consent status (always against server clock)
   app.get('/fip/consent/:consentId', (req: Request, res: Response) => {
     try {
       const consentId = String(req.params.consentId);
-      const currentTs = req.query.currentTimestamp ? Number(req.query.currentTimestamp) : undefined;
-      const consent = consentService.getConsent(consentId, currentTs);
+      const consent = consentService.getConsent(consentId);
       res.json({ success: true, consent });
     } catch (err: any) {
       res.status(404).json({ error: err.message || 'Consent not found' });
@@ -95,9 +101,9 @@ export function createFipApp(options: FipAppOptions): Express {
   app.get('/fip/data/:consentId', (req: Request, res: Response) => {
     try {
       const consentId = String(req.params.consentId);
-      const currentTs = req.query.currentTimestamp ? Number(req.query.currentTimestamp) : undefined;
+      const cutoffTs = req.query.cutoffTimestamp ? Number(req.query.cutoffTimestamp) : undefined;
 
-      const envelope = fipService.fetchSignedDataByConsent(consentId, currentTs);
+      const envelope = fipService.fetchSignedDataByConsent(consentId, cutoffTs);
       res.json({ success: true, envelope });
     } catch (err: any) {
       const msg = err.message || 'Failed to fetch FIP data';

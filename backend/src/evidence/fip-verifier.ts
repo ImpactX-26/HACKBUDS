@@ -45,9 +45,12 @@ export class FIPVerifier {
       throw new Error(`Unsupported FIP schema version: ${payload.schemaVersion}`);
     }
 
-    // 2. Trusted key check
-    if (this.trustedFipPublicKeys.size > 0 && !this.trustedFipPublicKeys.has(fipPublicKey)) {
-      throw new Error(`Untrusted FIP public key: key not recognized by Attestation Authority`);
+    // 2. Trusted key check - FAIL CLOSED
+    if (this.trustedFipPublicKeys.size === 0) {
+      throw new Error('FIP verification failed: no trusted FIP public keys configured in Attestation Authority');
+    }
+    if (!this.trustedFipPublicKeys.has(fipPublicKey)) {
+      throw new Error('Untrusted FIP public key: key not recognized by Attestation Authority');
     }
 
     // 3. Payload hash integrity

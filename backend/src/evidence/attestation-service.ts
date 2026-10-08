@@ -32,9 +32,9 @@ export interface AttestationRequest {
   expectedPassportId: number;
   sourceDirectoryVersion?: number;
   cutoffTimestamp?: number;
-  // Cryptographic identity & authorization artifacts
-  identityAssertion?: VerifiedIdentityAssertion;
-  walletAuthorization?: WorkerWalletAuthorization;
+  // Cryptographic identity & authorization artifacts (MANDATORY in fail-closed design)
+  identityAssertion: VerifiedIdentityAssertion;
+  walletAuthorization: WorkerWalletAuthorization;
 }
 
 export interface AttestationResult {
@@ -53,6 +53,17 @@ export interface AttestationResult {
   snapshot: EvidenceSnapshot;
 }
 
+export interface ReconstructEvidenceRequest {
+  consentId: string;
+  workerWalletAddress: string;
+  workerIdentityNullifier: string;
+  passportId: number;
+  evidenceUpdatedAt: number;
+  sourceDirectoryVersion: number;
+  identityAssertion: VerifiedIdentityAssertion;
+  walletAuthorization: WorkerWalletAuthorization;
+}
+
 export class AttestationService {
   private fipService: MockFIPService;
   private fipVerifier: FIPVerifier;
@@ -69,7 +80,8 @@ export class AttestationService {
   }
 
   /**
-   * Execute attestation pipeline with strict identity and wallet verification.
+   * Execute attestation pipeline with mandatory identity assertion and wallet authorization.
+   * Fail closed: issuance or refresh CANNOT proceed without both valid artifacts.
    */
   public attestWorkerEvidence(request: AttestationRequest): AttestationResult {
     const {
@@ -83,42 +95,51 @@ export class AttestationService {
       walletAuthorization,
     } = request;
 
+    // MANDATORY SECURITY GATE: Fail closed if either artifact is missing
+    if (!identityAssertion) {
+      throw new Error('AuthenticationRequired: missing verified identityAssertion artifact');
+    }
+    if (!walletAuthorization) {
+      throw new Error('AuthenticationRequired: missing worker walletAuthorization artifact');
+    }
+
     const cleanWallet = workerWalletAddress.toLowerCase().trim();
     const cleanNullifier = workerIdentityNullifier.toLowerCase().trim();
 
-    // 1. If Identity Assertion is provided, verify against Mock Identity Provider
-    if (identityAssertion) {
-      const idResult = this.idp.verifyAssertion(identityAssertion, cutoffTimestamp);
-      if (idResult.workerWalletAddress !== cleanWallet) {
-        throw new Error(
-          `Identity assertion wallet mismatch: assertion bound to ${idResult.workerWalletAddress}, request claimed ${cleanWallet}`
-        );
-      }
-      if (idResult.workerIdentityNullifier !== cleanNullifier) {
-        throw new Error(
-          `Identity assertion nullifier mismatch: assertion bound to ${idResult.workerIdentityNullifier}, request claimed ${cleanNullifier}`
-        );
-      }
+    // 1. Verify Identity Assertion against pinned Mock Identity Provider key
+    // Invariant: Expiry uses trusted server clock, NEVER caller-supplied cutoffTimestamp!
+    const idResult = this.idp.verifyAssertion(identityAssertion);
+    if (idResult.workerWalletAddress !== cleanWallet) {
+      throw new Error(
+        `Identity assertion wallet mismatch: assertion bound to ${idResult.workerWalletAddress}, request claimed ${cleanWallet}`
+      );
+    }
+    if (idResult.workerIdentityNullifier !== cleanNullifier) {
+      throw new Error(
+        `Identity assertion nullifier mismatch: assertion bound to ${idResult.workerIdentityNullifier}, request claimed ${cleanNullifier}`
+      );
     }
 
-    // 2. If Wallet Authorization is provided, verify EVM personal_sign signature
-    if (walletAuthorization) {
-      if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
-        throw new Error('Wallet authorization address does not match requested holder address');
-      }
-      if (walletAuthorization.consentId !== consentId) {
-        throw new Error('Wallet authorization is not bound to this consentId');
-      }
-      if (walletAuthorization.expectedPassportId !== expectedPassportId) {
-        throw new Error('Wallet authorization expectedPassportId mismatch');
-      }
-      verifyWorkerAuthorization(walletAuthorization, 300, cutoffTimestamp);
+    // 2. Verify Wallet Authorization signature
+    // Invariant: Freshness uses trusted server clock, NEVER caller-supplied cutoffTimestamp!
+    if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
+      throw new Error('Wallet authorization address does not match requested holder address');
     }
+    if (walletAuthorization.consentId !== consentId) {
+      throw new Error('Wallet authorization is not bound to this consentId');
+    }
+    if (walletAuthorization.expectedPassportId !== expectedPassportId) {
+      throw new Error(
+        `Wallet authorization expectedPassportId mismatch: signed for ${walletAuthorization.expectedPassportId}, request has ${expectedPassportId}`
+      );
+    }
+    verifyWorkerAuthorization(walletAuthorization, 300);
 
     // 3. Server-to-server signed fetch from Mock FIP
+    // Cutoff timestamp is strictly for evidence transaction filtering, not consent expiry
     const signedEnvelope = this.fipService.fetchSignedDataByConsent(consentId, cutoffTimestamp);
 
-    // 4. Cryptographic verification & account-owner identity matching gate
+    // 4. Cryptographic verification & account-owner identity matching gate (fail closed)
     const verification = this.fipVerifier.verifyEnvelope(signedEnvelope, cleanNullifier);
 
     // 5. Transient in-memory snapshot derivation
@@ -149,14 +170,84 @@ export class AttestationService {
   }
 
   /**
-   * Complete on-chain passport issuance with atomic sequential contention retry.
-   * Handles ExpectedIdMismatch by atomically recomputing snapshot with updated ID.
+   * Deterministically reconstruct EvidenceSnapshot for authorized worker / prover.
+   * Secure gate: requires valid identity assertion, wallet authorization, and active consent.
+   */
+  public reconstructEvidenceSnapshot(request: ReconstructEvidenceRequest): { snapshot: EvidenceSnapshot } {
+    const {
+      consentId,
+      workerWalletAddress,
+      workerIdentityNullifier,
+      passportId,
+      evidenceUpdatedAt,
+      sourceDirectoryVersion,
+      identityAssertion,
+      walletAuthorization,
+    } = request;
+
+    if (!identityAssertion) {
+      throw new Error('AuthenticationRequired: reconstruction requires verified identityAssertion');
+    }
+    if (!walletAuthorization) {
+      throw new Error('AuthenticationRequired: reconstruction requires worker walletAuthorization');
+    }
+
+    const cleanWallet = workerWalletAddress.toLowerCase().trim();
+    const cleanNullifier = workerIdentityNullifier.toLowerCase().trim();
+
+    // 1. Verify identity assertion
+    const idResult = this.idp.verifyAssertion(identityAssertion);
+    if (idResult.workerWalletAddress !== cleanWallet || idResult.workerIdentityNullifier !== cleanNullifier) {
+      throw new Error('Identity assertion does not match requested worker or wallet');
+    }
+
+    // 2. Verify wallet authorization
+    if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
+      throw new Error('Wallet authorization address does not match requested holder address');
+    }
+    if (walletAuthorization.action !== 'RECONSTRUCT_EVIDENCE') {
+      throw new Error('Wallet authorization action must be RECONSTRUCT_EVIDENCE');
+    }
+    if (walletAuthorization.consentId !== consentId) {
+      throw new Error('Wallet authorization is not bound to this consentId');
+    }
+    if (walletAuthorization.expectedPassportId !== passportId) {
+      throw new Error('Wallet authorization passport ID mismatch');
+    }
+    verifyWorkerAuthorization(walletAuthorization, 300);
+
+    // 3. Server-to-server signed fetch from Mock FIP
+    const signedEnvelope = this.fipService.fetchSignedDataByConsent(consentId, evidenceUpdatedAt);
+
+    // 4. Verify FIP signature & account-owner identity matching gate
+    const verification = this.fipVerifier.verifyEnvelope(signedEnvelope, cleanNullifier);
+
+    // 5. Transient in-memory snapshot derivation (zero persistence)
+    const { snapshot } = EvidenceSnapshotBuilder.buildSnapshot({
+      fipPayload: verification.payload,
+      passportId,
+      holderWallet: cleanWallet,
+      evidenceUpdatedAt,
+      sourceDirectoryVersion,
+    });
+
+    return { snapshot };
+  }
+
+  /**
+   * Complete on-chain passport issuance with sequential ID contention handling.
+   * 
+   * Security Invariant:
+   * On ExpectedIdMismatch, NEVER silently modify an already-signed expected passport ID.
+   * Requires a fresh worker authorization from reauthorizeWorker callback, or halts.
    */
   public async attestAndMintOnChain(
-    request: Omit<AttestationRequest, 'expectedPassportId'>,
+    request: AttestationRequest,
     passportContract: IGigPassportClient,
+    reauthorizeWorker?: (newExpectedPassportId: number) => Promise<WorkerWalletAuthorization>,
     maxContentionRetries = 3
   ): Promise<{ passportId: number; attestation: AttestationResult }> {
+    let currentRequest = { ...request };
     let attempts = 0;
 
     while (attempts < maxContentionRetries) {
@@ -164,20 +255,35 @@ export class AttestationService {
       // 1. Read next available sequential passport ID from contract
       const nextId = await passportContract.getNextPassportId();
 
-      // 2. Update wallet authorization expectedPassportId if present
-      const reqWithId: AttestationRequest = {
-        ...request,
-        expectedPassportId: nextId,
-      };
+      // 2. If expected ID does not match contract next ID, require worker reauthorization
+      if (currentRequest.expectedPassportId !== nextId) {
+        if (!reauthorizeWorker) {
+          throw new Error(
+            `ExpectedIdMismatch: requested passport ID ${currentRequest.expectedPassportId} does not match contract next ID ${nextId}; worker reauthorization required`
+          );
+        }
+        const freshAuth = await reauthorizeWorker(nextId);
+        if (freshAuth.expectedPassportId !== nextId) {
+          throw new Error(
+            `ReauthorizationFailed: fresh worker authorization was not signed for expected ID ${nextId}`
+          );
+        }
+        currentRequest = {
+          ...currentRequest,
+          expectedPassportId: nextId,
+          walletAuthorization: freshAuth,
+        };
+      }
 
-      // 3. Attest and derive snapshot with expectedId
-      const attestation = this.attestWorkerEvidence(reqWithId);
+      // 3. Attest and derive snapshot with exact expectedId
+      const attestation = this.attestWorkerEvidence(currentRequest);
 
-      // 4. Construct evidence commitment data
-      // For testing/mocking before final Poseidon adapter, use a deterministic integer digest
-      const dummyCommitment = BigInt(`0x${attestation.evidenceDataHash}`).toString();
+      // 4. Construct mock evidence commitment data
+      // MOCK TEST COMMITMENT ONLY: Local testing scalar digest prior to shared Poseidon freeze.
+      // Invariant: MUST NOT be submitted as a production Poseidon evidence commitment.
+      const mockTestCommitment = BigInt(`0x${attestation.evidenceDataHash}`).toString();
       const evidenceData: EvidenceCommitmentData = {
-        commitment: dummyCommitment,
+        commitment: mockTestCommitment,
         updatedAt: attestation.evidenceUpdatedAt,
         schemaVersion: 1,
         providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
@@ -194,7 +300,12 @@ export class AttestationService {
         return { passportId, attestation };
       } catch (err: any) {
         if (err.message && err.message.includes('ExpectedIdMismatch') && attempts < maxContentionRetries) {
-          // Sequential ID contention: recompute snapshot with updated sequential ID and retry
+          if (!reauthorizeWorker) {
+            throw new Error(
+              `ExpectedIdMismatch: concurrent mint occurred; worker reauthorization required for new passport ID`
+            );
+          }
+          // Retry with fresh authorization on next loop iteration
           continue;
         }
         throw err;

@@ -19,6 +19,8 @@ import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
 import { AttestationService } from '../src/evidence/attestation-service.js';
+import { FIPVerifier } from '../src/evidence/fip-verifier.js';
+import { generateFipKeyPair } from '../src/fip/crypto.js';
 import { PERSONAS } from '../src/fip/personas/index.js';
 
 describe('Worker Identity & Wallet Authentication Boundary', () => {
@@ -192,6 +194,17 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
       workerWalletAddress: rameshWallet.address,
     });
 
+    // Attacker signs wallet authorization with their own wallet
+    const attackerAuth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: arjunWallet.address,
+        consentId: consent.consentId,
+        expectedPassportId: 101,
+      },
+      arjunWallet
+    );
+
     // Attacker tries to pass Ramesh's assertion with Arjun's wallet address
     assert.throws(
       () =>
@@ -201,6 +214,7 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
           workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
           expectedPassportId: 101,
           identityAssertion,
+          walletAuthorization: attackerAuth,
         }),
       /Identity assertion wallet mismatch/,
       'Must reject when assertion wallet does not match request wallet'
@@ -247,6 +261,114 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
         }),
       /Account owner binding mismatch: Bank account owner identity/,
       'Must reject when verified identity does not match bank account owner'
+    );
+  });
+
+  it('MUST REJECT: missing assertion or wallet authorization in direct service method (fail-closed)', async () => {
+    const storage = new MockFIPStorage();
+    const consentService = new ConsentService(storage);
+    const fipService = new MockFIPService(storage, consentService);
+    const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
+
+    const consent = consentService.createConsent({
+      accountId: PERSONAS.RAMESH.accountId,
+    });
+
+    const assertion = idp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: rameshWallet.address,
+    });
+
+    // 1. Missing assertion
+    assert.throws(
+      () =>
+        attestationService.attestWorkerEvidence({
+          consentId: consent.consentId,
+          workerWalletAddress: rameshWallet.address,
+          workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+          expectedPassportId: 101,
+        } as any),
+      /AuthenticationRequired: missing verified identityAssertion/,
+      'Must reject when assertion is missing'
+    );
+
+    // 2. Missing wallet authorization
+    assert.throws(
+      () =>
+        attestationService.attestWorkerEvidence({
+          consentId: consent.consentId,
+          workerWalletAddress: rameshWallet.address,
+          workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+          expectedPassportId: 101,
+          identityAssertion: assertion,
+        } as any),
+      /AuthenticationRequired: missing worker walletAuthorization/,
+      'Must reject when wallet authorization is missing'
+    );
+  });
+
+  it('MUST REJECT: self-signed forged IDP assertion signed by attacker key', () => {
+    // Attacker generates their own rogue IDP keypair
+    const rogueIdp = new MockIdentityProvider();
+    const forgedAssertion = rogueIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: arjunWallet.address,
+    });
+
+    // Trusted IDP verifier (which has pinned trusted key) must reject the assertion even though signature is mathematically valid!
+    assert.throws(
+      () => idp.verifyAssertion(forgedAssertion),
+      /Untrusted identity provider public key: key not recognized by Attestation Authority/,
+      'Must reject self-signed assertion with untrusted public key'
+    );
+  });
+
+  it('MUST REJECT: untrusted FIP public keys or unconfigured FIP authority (fail closed)', () => {
+    const emptyVerifier = new FIPVerifier([]);
+
+    const storage = new MockFIPStorage();
+    const consentService = new ConsentService(storage);
+    const fipService = new MockFIPService(storage, consentService);
+    const consent = consentService.createConsent({
+      accountId: PERSONAS.RAMESH.accountId,
+      authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+    });
+    const envelope = fipService.fetchSignedDataByConsent(consent.consentId);
+
+    assert.throws(
+      () => emptyVerifier.verifyEnvelope(envelope, PERSONAS.RAMESH.identityNullifierHash),
+      /FIP verification failed: no trusted FIP public keys configured in Attestation Authority/,
+      'Empty trusted keys must fail closed'
+    );
+
+    // Verifier with rogue key must reject genuine envelope
+    const rogueKeyPair = generateFipKeyPair();
+    const mismatchedVerifier = new FIPVerifier([rogueKeyPair.publicKeyPem]);
+    assert.throws(
+      () => mismatchedVerifier.verifyEnvelope(envelope, PERSONAS.RAMESH.identityNullifierHash),
+      /Untrusted FIP public key: key not recognized by Attestation Authority/,
+      'Untrusted FIP key must be rejected'
+    );
+  });
+
+  it('MUST REJECT: backdated caller timestamp cannot revive expired wallet authorization', async () => {
+    const expiredTs = Math.floor(Date.now() / 1000) - 1000; // 1000s ago
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: 'CONSENT_TEST',
+        expectedPassportId: 101,
+        timestamp: expiredTs,
+      },
+      rameshWallet
+    );
+
+    // verifyWorkerAuthorization uses trusted server clock, ignoring old timestamp
+    assert.throws(
+      () => verifyWorkerAuthorization(auth, 300),
+      /Worker wallet authorization expired/,
+      'Expired authorization cannot pass verification'
     );
   });
 });

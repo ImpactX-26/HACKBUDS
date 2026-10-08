@@ -16,23 +16,46 @@ import {
   hashToFieldElement,
   BN254_SCALAR_FIELD_MODULUS,
 } from '../src/proposal/canonical-evidence-schema.js';
+import { MockIdentityProvider } from '../src/identity/mock-idp.js';
+import { signWorkerAuthorization } from '../src/identity/wallet-auth.js';
+import { ethers } from 'ethers';
 
 const storage = new MockFIPStorage();
 const consentService = new ConsentService(storage);
 const fipService = new MockFIPService(storage, consentService);
-const attestationService = new AttestationService(fipService);
+const idp = new MockIdentityProvider();
+const attestationService = new AttestationService(
+  fipService,
+  [storage.getPublicKeyPem()],
+  idp
+);
 
 const cutoffTs = Date.UTC(2026, 9, 8, 12, 0, 0) / 1000;
 const ramesh = PERSONAS.RAMESH;
 const consent = consentService.createConsent({
   accountId: ramesh.accountId,
+  authorizedIdentityNullifier: ramesh.identityNullifierHash,
   durationSeconds: 3600,
   toTimestamp: cutoffTs,
 });
 
-const walletAddress = '0x111111cf1046e68e36E1aA2E0E07105eDDD1f08E';
+const wallet = ethers.Wallet.createRandom();
+const walletAddress = wallet.address;
 const expectedPassportId = 101;
 const sourceDirectoryVersion = 1;
+
+const assertion = idp.issueAssertion({
+  workerIdentityNullifier: ramesh.identityNullifierHash,
+  workerWalletAddress: walletAddress,
+  durationSeconds: 3600,
+});
+
+const auth = await signWorkerAuthorization({
+  action: 'MINT_PASSPORT',
+  workerWalletAddress: walletAddress,
+  consentId: consent.consentId,
+  expectedPassportId,
+}, wallet);
 
 const res = attestationService.attestWorkerEvidence({
   consentId: consent.consentId,
@@ -41,6 +64,8 @@ const res = attestationService.attestWorkerEvidence({
   expectedPassportId,
   sourceDirectoryVersion,
   cutoffTimestamp: cutoffTs,
+  identityAssertion: assertion,
+  walletAuthorization: auth,
 });
 
 const holderField = addressToFieldElement(walletAddress);

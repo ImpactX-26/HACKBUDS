@@ -17,6 +17,8 @@ export interface UnifiedAppOptions {
   storage?: MockFIPStorage;
   consentService?: ConsentService;
   fipService?: MockFIPService;
+  idp?: any;
+  strictAuthentication?: boolean;
 }
 
 export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
@@ -35,6 +37,8 @@ export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
   const attestationApp = createAttestationApp({
     fipService,
     trustedFipPublicKeys: [storage.getPublicKeyPem()],
+    idp: options.idp,
+    strictAuthentication: options.strictAuthentication ?? true,
   });
   app.use('/', attestationApp);
 

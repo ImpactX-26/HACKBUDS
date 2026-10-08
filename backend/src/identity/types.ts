@@ -20,7 +20,11 @@ export interface VerifiedIdentityAssertion {
   idpPublicKey: string; // IDP public key PEM
 }
 
-export type WorkerActionType = 'MINT_PASSPORT' | 'REFRESH_PASSPORT';
+export type WorkerActionType =
+  | 'MINT_PASSPORT'
+  | 'REFRESH_PASSPORT'
+  | 'REISSUE_PASSPORT'
+  | 'RECONSTRUCT_EVIDENCE';
 
 export interface WorkerWalletAuthorization {
   action: WorkerActionType;
@@ -29,4 +33,7 @@ export interface WorkerWalletAuthorization {
   expectedPassportId: number; // Bound to the expected passport sequence ID
   timestamp: number; // Unix seconds (freshness check)
   signature: string; // EVM personal_sign signature over canonical message
+  chainId?: number; // e.g. 80002 for Polygon Amoy
+  nonce?: string;
 }
+
