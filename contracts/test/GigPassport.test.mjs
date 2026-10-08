@@ -225,3 +225,140 @@ test('ERC165 advertises ERC721 and AccessControl interfaces', async () => {
   assert.equal(await passport.supportsInterface('0x7965db0b'), true);
   assert.equal(await passport.supportsInterface('0xffffffff'), false);
 });
+
+test('mined duplicate and invalid refresh calls roll back all lifecycle state and events', async () => {
+  await mint();
+  const before = await passport.getPassport(1);
+  const startBlock = await provider.getBlockNumber();
+  const failTransaction = async promise => {
+    await assert.rejects(async () => sent(promise), error => {
+      assert.equal(error.receipt?.status, 0);
+      assert.equal(error.receipt.logs.length, 0);
+      return true;
+    });
+  };
+  await failTransaction(passport.connect(attester).mint(2, addresses[4], identity, evidence(), {gasLimit: 500000}));
+  for (const ev of [evidence(), evidence({commitment: 456n, updatedAt: now - 101n}),
+    evidence({commitment: 456n, updatedAt: now + 10000n})]) {
+    await failTransaction(passport.connect(attester).refresh(1, ev, {gasLimit: 500000}));
+    assert.deepEqual((await passport.getPassport(1)).toArray(), before.toArray());
+  }
+  assert.equal(await passport.nextPassportId(), 2n);
+  assert.equal(await passport.activePassportByIdentity(identity), 1n);
+  assert.equal(await passport.latestPassportByIdentity(identity), 1n);
+  assert.equal(await passport.balanceOf(addresses[4]), 0n);
+  await rejects(() => passport.getPassport(2), 'ERC721NonexistentToken');
+  assert.equal((await passport.queryFilter(passport.filters.EvidenceRefreshed(), startBlock + 1)).length, 0);
+});
+
+test('multiple refresh events reconstruct historical versions while storage retains current evidence', async () => {
+  const records = [evidence(), evidence({commitment: 456n, updatedAt: now - 50n,
+    schemaVersion: 2n, providerRef: id('SYNTHETIC_PROVIDER_2'), sourceDirectoryVersion: 4n}),
+    evidence({commitment: 789n, updatedAt: now - 25n, schemaVersion: 3n,
+      providerRef: id('SYNTHETIC_PROVIDER_3'), sourceDirectoryVersion: 5n})];
+  await mint(identity, addresses[2], records[0]);
+  for (const ev of records.slice(1)) await sent(passport.connect(attester).refresh(1, ev));
+  const logs = [...await passport.queryFilter(passport.filters.PassportIssued()),
+    ...await passport.queryFilter(passport.filters.EvidenceRefreshed())];
+  assert.equal(logs.length, records.length);
+  for (const [index, log] of logs.entries()) {
+    assert.equal(log.args.passportId, 1n);
+    assert.equal(log.args.evidenceVersion, BigInt(index + 1));
+    for (const [eventField, inputField] of [['evidenceCommitment','commitment'],
+      ['evidenceUpdatedAt','updatedAt'], ['sourceDirectoryVersion','sourceDirectoryVersion'],
+      ['schemaVersion','schemaVersion'], ['evidenceProvider','providerRef']]) {
+      assert.equal(log.args[eventField], records[index][inputField]);
+    }
+  }
+  const current = await passport.getPassport(1);
+  assert.equal(current.evidenceVersion, 3n);
+  assert.equal(current.evidenceCommitment, 789n);
+  assert.equal(current.evidenceUpdatedAt, records[2].updatedAt);
+  assert.equal(current.schemaVersion, 3n);
+  assert.equal(current.evidenceProvider, records[2].providerRef);
+});
+
+test('repeated recovery preserves stable identity, terminal predecessors and one-use authorization', async () => {
+  await mint();
+  for (let previous = 1n; previous <= 3n; previous++) {
+    await sent(passport.revoke(previous, 'synthetic recovery cycle'));
+    await rejects(() => passport.connect(attester).mint.staticCall(previous + 1n,
+      addresses[4], identity, evidence({commitment: 123n + previous})), 'ReissueNotAuthorized');
+    const receipt = await sent(passport.authorizeReissue(identity));
+    const authorization = events(receipt).find(e => e.name === 'ReissueAuthorized');
+    assert.equal(authorization.args.identityNullifierHash, identity);
+    assert.equal(authorization.args.revokedPassportId, previous);
+    await mint(identity, addresses[4], evidence({commitment: 123n + previous}));
+    const current = await passport.getPassport(previous + 1n);
+    assert.equal(current.supersedes, previous);
+    assert.equal(current.identityNullifierHash, identity);
+    assert.equal(current.evidenceVersion, 1n);
+    assert.equal(current.status, 0n);
+    assert.equal(await passport.reissueAllowed(identity), false);
+    assert.equal(await passport.activePassportByIdentity(identity), previous + 1n);
+    assert.equal(await passport.latestPassportByIdentity(identity), previous + 1n);
+    for (let old = 1n; old <= previous; old++) {
+      assert.equal((await passport.getPassport(old)).status, 1n);
+      await rejects(() => passport.connect(attester).refresh.staticCall(old,
+        evidence({commitment: 999n})), 'PassportNotActive');
+      await rejects(() => passport.revoke.staticCall(old, 'again'), 'PassportNotActive');
+    }
+  }
+});
+
+test('recovery ID contention preserves authorization until retry succeeds', async () => {
+  await mint();
+  await sent(passport.revoke(1, 'synthetic recovery race'));
+  await sent(passport.authorizeReissue(identity));
+  const expected = await passport.nextPassportId();
+  await mint(identity2, addresses[3], evidence({commitment: 456n}));
+  await rejects(() => passport.connect(attester).mint.staticCall(expected, addresses[4],
+    identity, evidence({commitment: 789n})), 'ExpectedIdMismatch');
+  await assert.rejects(async () => sent(passport.connect(attester).mint(expected, addresses[4],
+    identity, evidence({commitment: 789n}), {gasLimit: 500000})), error => {
+    assert.equal(error.receipt?.status, 0);
+    assert.equal(error.receipt.logs.length, 0);
+    return true;
+  });
+  assert.equal(await passport.reissueAllowed(identity), true);
+  assert.equal(await passport.latestPassportByIdentity(identity), 1n);
+  assert.equal(await passport.activePassportByIdentity(identity), 0n);
+  assert.equal(await passport.nextPassportId(), 3n);
+  // Opaque fixture stands for a newly recomputed ID-bound commitment, not a crypto vector.
+  await mint(identity, addresses[4], evidence({commitment: 999n}));
+  assert.equal((await passport.getPassport(3)).supersedes, 1n);
+  assert.equal(await passport.reissueAllowed(identity), false);
+  assert.equal(await passport.latestPassportByIdentity(identity), 3n);
+  assert.equal(await passport.activePassportByIdentity(identity), 3n);
+  assert.equal(await passport.activePassportByIdentity(identity2), 2n);
+});
+
+test('identity uniqueness is independent of wallet; stale evidence does not revoke', async () => {
+  await mint();
+  await mint(identity2, addresses[2], evidence({commitment: 456n}));
+  await chain.request({method: 'evm_increaseTime', params: [366 * 86400]});
+  await chain.request({method: 'evm_mine', params: []});
+  const latest = await chain.request({method: 'eth_getBlockByNumber', params: ['latest', false]});
+  assert.ok(BigInt(latest.timestamp) - now >= 366n * 86400n);
+  assert.equal(await passport.balanceOf(addresses[2]), 2n);
+  for (const [hash, tokenId] of [[identity, 1n], [identity2, 2n]]) {
+    assert.equal((await passport.getPassport(tokenId)).status, 0n);
+    assert.equal(await passport.activePassportByIdentity(hash), tokenId);
+  }
+});
+
+test('renounced attester and removed lifecycle admin lose authority; role management remains separate', async () => {
+  await mint();
+  const attesterRole = await passport.ATTESTER_ROLE(), adminRole = await passport.ADMIN_ROLE();
+  await sent(passport.connect(attester).renounceRole(attesterRole, addresses[1]));
+  await rejects(() => passport.connect(attester).refresh.staticCall(1,
+    evidence({commitment: 456n})), 'AccessControlUnauthorizedAccount');
+  await sent(passport.grantRole(adminRole, addresses[3]));
+  await sent(passport.revokeRole(adminRole, addresses[0]));
+  await rejects(() => passport.revoke.staticCall(1, 'synthetic reason'), 'AccessControlUnauthorizedAccount');
+  await rejects(() => passport.connect(other).grantRole.staticCall(attesterRole, addresses[4]),
+    'AccessControlUnauthorizedAccount');
+  await sent(passport.connect(other).revoke(1, 'synthetic rotated admin'));
+  await sent(passport.connect(other).authorizeReissue(identity));
+  assert.equal(await passport.reissueAllowed(identity), true);
+});
