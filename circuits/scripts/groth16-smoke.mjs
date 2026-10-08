@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root } from './toolchain.mjs';
-import { createProvisionalPoseidon } from '../dist/src/provisional-poseidon.js';
-import { calculator } from '../dist/test/runtime.js';
+import { createProvisionalPoseidon } from '../dist/circuits/src/provisional-poseidon.js';
+import { calculator } from '../dist/circuits/test/runtime.js';
 
 // A REAL local Groth16 primitive test. Single-party disposable ceremony; NOT a
 // production setup, policy proof, attestation, consumer approval or deployable key.

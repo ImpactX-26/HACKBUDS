@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createProvisionalPoseidon, PROFILE } from '../dist/src/provisional-poseidon.js';
-import { baseline, fixtures } from '../dist/test/synthetic-fixtures.js';
-import { calculator, decimal, encoded, outputs } from '../dist/test/runtime.js';
+import { createProvisionalPoseidon, PROFILE } from '../dist/circuits/src/provisional-poseidon.js';
+import { baseline, fixtures } from '../dist/circuits/test/synthetic-fixtures.js';
+import { calculator, decimal, encoded, outputs } from '../dist/circuits/test/runtime.js';
 
 // Explicit command only: normal tests NEVER rewrite expected vectors.
 const hashes = await createProvisionalPoseidon();
