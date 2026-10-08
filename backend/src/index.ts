@@ -17,3 +17,7 @@ export * from './evidence/normalizer.js';
 export * from './evidence/fip-verifier.js';
 export * from './evidence/snapshot-builder.js';
 export * from './evidence/attestation-service.js';
+
+export * from './http/fip-app.js';
+export * from './http/attestation-app.js';
+export * from './http/unified-app.js';

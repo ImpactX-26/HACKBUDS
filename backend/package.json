@@ -5,13 +5,20 @@
   "description": "GigVault Backend A - Mock Bank/FIP service and deterministic evidence pipeline",
   "main": "dist/index.js",
   "scripts": {
+    "start": "node --import tsx src/http/server.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^22.0.0",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
   }
 }
