@@ -21,6 +21,8 @@ export interface VerifiedIdentityAssertion {
 }
 
 export type WorkerActionType =
+  | 'CREATE_CONSENT'
+  | 'FETCH_FINANCIAL_DATA'
   | 'MINT_PASSPORT'
   | 'REFRESH_PASSPORT'
   | 'REISSUE_PASSPORT'

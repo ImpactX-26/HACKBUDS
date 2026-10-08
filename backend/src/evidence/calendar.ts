@@ -152,12 +152,20 @@ export function aggregateEvidenceCalendar(
     verifiedHistoryStartDate = Math.floor(gigTxns[0].raw.timestamp / 86400);
   }
 
-  // Populate month buckets
+  // Populate month buckets using exact integer BigInt arithmetic
+  const UINT64_MAX = 18446744073709551615n;
   for (const txn of gigTxns) {
     const ts = txn.raw.timestamp;
     for (const mb of monthBuckets) {
       if (ts >= mb.startTs && ts < mb.endTs) {
-        mb.incomePaise += txn.raw.amountMinor;
+        const sum = BigInt(mb.incomePaise) + BigInt(txn.raw.amountMinor);
+        if (sum > UINT64_MAX) {
+          throw new Error('Monetary overflow: monthly gig income total exceeds uint64 max');
+        }
+        if (sum > BigInt(Number.MAX_SAFE_INTEGER)) {
+          throw new Error('Monetary precision limit exceeded: monthly income exceeds Number.MAX_SAFE_INTEGER');
+        }
+        mb.incomePaise = Number(sum);
         mb.activity = 1;
         break;
       }

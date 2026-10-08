@@ -13,15 +13,41 @@ import type { ConsentService } from './consent-service.js';
 import type { MockFIPStorage } from './storage.js';
 import type { SignedFIPEnvelope, SignedFIPPayload } from './types.js';
 
+import type { VerifiedIdentityAssertion, WorkerWalletAuthorization } from '../identity/types.js';
+import { verifyWorkerAuthorization } from '../identity/wallet-auth.js';
+import { defaultMockIdp, MockIdentityProvider } from '../identity/mock-idp.js';
+
+export interface FIPRetrievalAuth {
+  identityAssertion?: VerifiedIdentityAssertion;
+  walletAuthorization?: WorkerWalletAuthorization;
+}
+
 export class MockFIPService {
   private storage: MockFIPStorage;
   private consentService: ConsentService;
   private fipId: string;
+  private idp?: MockIdentityProvider;
 
-  constructor(storage: MockFIPStorage, consentService: ConsentService, fipId = 'MOCK_APNA_BANK_FIP_01') {
+  constructor(
+    storage: MockFIPStorage,
+    consentService: ConsentService,
+    fipId = 'MOCK_APNA_BANK_FIP_01',
+    idp?: MockIdentityProvider
+  ) {
     this.storage = storage;
     this.consentService = consentService;
     this.fipId = fipId;
+    this.idp = idp;
+  }
+
+  public getIdp(): MockIdentityProvider {
+    if (this.idp) {
+      return this.idp;
+    }
+    if (typeof (this.consentService as any)?.getIdp === 'function') {
+      return (this.consentService as any).getIdp();
+    }
+    return defaultMockIdp;
   }
 
   /**
@@ -35,7 +61,8 @@ export class MockFIPService {
   public fetchSignedDataByConsent(
     consentId: string,
     evidenceCutoffTimestamp?: number,
-    trustedServerTimeSec?: number
+    trustedServerTimeSec?: number,
+    auth?: FIPRetrievalAuth
   ): SignedFIPEnvelope {
     // 1. Retrieve and validate consent using trusted server time (NOT evidence cutoff!)
     const consent = this.consentService.getConsent(consentId, trustedServerTimeSec);
@@ -48,6 +75,28 @@ export class MockFIPService {
     }
     if (consent.status !== 'ACTIVE') {
       throw new Error(`FIP consent inactive: consentId ${consentId} has status ${consent.status}`);
+    }
+
+    // 2. Caller authorization gate (protect private FIP retrieval against unauthorized callers)
+    if (auth && auth.identityAssertion && auth.walletAuthorization) {
+      const verifiedId = this.getIdp().verifyAssertion(auth.identityAssertion);
+      verifyWorkerAuthorization(auth.walletAuthorization);
+
+      if (auth.walletAuthorization.workerWalletAddress.toLowerCase() !== verifiedId.workerWalletAddress.toLowerCase()) {
+        throw new Error('UnauthorizedFIPRetrieval: wallet authorization does not match identity assertion wallet');
+      }
+
+      if (auth.walletAuthorization.consentId !== consentId) {
+        throw new Error(`UnauthorizedFIPRetrieval: wallet authorization bound to ${auth.walletAuthorization.consentId}, not ${consentId}`);
+      }
+
+      if (consent.authorizedIdentityNullifier && consent.authorizedIdentityNullifier.toLowerCase() !== verifiedId.workerIdentityNullifier.toLowerCase()) {
+        throw new Error(`UnauthorizedFIPRetrieval: identity nullifier ${verifiedId.workerIdentityNullifier} is not authorized for consent ${consentId}`);
+      }
+
+      if (consent.authorizedWalletAddress && consent.authorizedWalletAddress.toLowerCase() !== auth.walletAuthorization.workerWalletAddress.toLowerCase()) {
+        throw new Error(`UnauthorizedFIPRetrieval: wallet address ${auth.walletAuthorization.workerWalletAddress} is not authorized for consent ${consentId}`);
+      }
     }
 
     // 2. Retrieve bank-side account binding

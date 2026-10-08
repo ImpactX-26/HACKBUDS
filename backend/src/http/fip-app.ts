@@ -23,10 +23,11 @@ export interface FipAppOptions {
   storage: MockFIPStorage;
   consentService: ConsentService;
   fipService: MockFIPService;
+  strictAuthentication?: boolean;
 }
 
 export function createFipApp(options: FipAppOptions): Express {
-  const { storage, consentService, fipService } = options;
+  const { storage, consentService, fipService, strictAuthentication = true } = options;
   const app = express();
 
   app.use(express.json());
@@ -49,20 +50,38 @@ export function createFipApp(options: FipAppOptions): Express {
   // 2. Create consent record
   app.post('/fip/consent', (req: Request, res: Response) => {
     try {
-      const { accountId, durationSeconds, fromTimestamp, toTimestamp, authorizedIdentityNullifier } = req.body;
+      const {
+        accountId,
+        durationSeconds,
+        fromTimestamp,
+        toTimestamp,
+        authorizedIdentityNullifier,
+        identityAssertion,
+        walletAuthorization,
+      } = req.body;
       if (!accountId || typeof accountId !== 'string') {
         res.status(400).json({ error: 'Missing or invalid accountId' });
         return;
       }
 
-      const nullifier = authorizedIdentityNullifier || req.headers['x-worker-identity-nullifier'];
+      if (strictAuthentication !== false) {
+        if (!identityAssertion || !walletAuthorization) {
+          res.status(401).json({
+            error: 'AUTHENTICATION_REQUIRED',
+            message: 'Consent creation requires verified identityAssertion and walletAuthorization artifacts',
+          });
+          return;
+        }
+      }
 
       const consent = consentService.createConsent({
         accountId,
-        authorizedIdentityNullifier: typeof nullifier === 'string' ? nullifier : undefined,
+        authorizedIdentityNullifier: typeof authorizedIdentityNullifier === 'string' ? authorizedIdentityNullifier : undefined,
         durationSeconds: durationSeconds ? Number(durationSeconds) : undefined,
         fromTimestamp: fromTimestamp ? Number(fromTimestamp) : undefined,
         toTimestamp: toTimestamp ? Number(toTimestamp) : undefined,
+        identityAssertion,
+        walletAuthorization,
       });
 
       res.status(201).json({ success: true, consent });
@@ -103,11 +122,34 @@ export function createFipApp(options: FipAppOptions): Express {
       const consentId = String(req.params.consentId);
       const cutoffTs = req.query.cutoffTimestamp ? Number(req.query.cutoffTimestamp) : undefined;
 
-      const envelope = fipService.fetchSignedDataByConsent(consentId, cutoffTs);
+      let auth: { identityAssertion?: any; walletAuthorization?: any } | undefined;
+      const idHeader = req.headers['x-identity-assertion'];
+      const walletHeader = req.headers['x-wallet-authorization'];
+
+      if (idHeader && walletHeader) {
+        try {
+          const parsedId = typeof idHeader === 'string' ? JSON.parse(idHeader) : idHeader;
+          const parsedWallet = typeof walletHeader === 'string' ? JSON.parse(walletHeader) : walletHeader;
+          auth = { identityAssertion: parsedId, walletAuthorization: parsedWallet };
+        } catch {
+          res.status(400).json({ error: 'INVALID_AUTH_HEADERS', message: 'Failed to parse auth headers' });
+          return;
+        }
+      } else if (strictAuthentication !== false) {
+        res.status(401).json({
+          error: 'AUTHENTICATION_REQUIRED',
+          message: 'Private FIP data retrieval requires verified x-identity-assertion and x-wallet-authorization headers',
+        });
+        return;
+      }
+
+      const envelope = fipService.fetchSignedDataByConsent(consentId, cutoffTs, undefined, auth);
       res.json({ success: true, envelope });
     } catch (err: any) {
       const msg = err.message || 'Failed to fetch FIP data';
-      if (msg.includes('expired')) {
+      if (msg.includes('UnauthorizedFIPRetrieval')) {
+        res.status(403).json({ error: 'UNAUTHORIZED_FIP_RETRIEVAL', message: msg });
+      } else if (msg.includes('expired')) {
         res.status(410).json({ error: 'FIP_CONSENT_EXPIRED', message: msg });
       } else if (msg.includes('revoked')) {
         res.status(403).json({ error: 'FIP_CONSENT_REVOKED', message: msg });

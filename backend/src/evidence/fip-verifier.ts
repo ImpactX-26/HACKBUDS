@@ -79,13 +79,19 @@ export class FIPVerifier {
       );
     }
 
-    // 6. Transaction sanity checks (integer paise, non-negative)
+    // 6. Transaction sanity checks (exact safe integer paise, currency, direction)
     for (const txn of payload.transactions) {
-      if (typeof txn.amountMinor !== 'number' || !Number.isInteger(txn.amountMinor) || txn.amountMinor < 0) {
-        throw new Error(`Invalid transaction amountMinor: must be non-negative integer paise, got ${txn.amountMinor}`);
+      if (typeof txn.amountMinor !== 'number' || !Number.isSafeInteger(txn.amountMinor) || txn.amountMinor < 0) {
+        throw new Error(`Invalid transaction amountMinor: must be non-negative safe integer paise, got ${txn.amountMinor}`);
       }
       if (typeof txn.timestamp !== 'number' || !Number.isInteger(txn.timestamp) || txn.timestamp <= 0) {
         throw new Error(`Invalid transaction timestamp: must be positive integer Unix seconds, got ${txn.timestamp}`);
+      }
+      if (txn.currency !== 'INR') {
+        throw new Error(`Invalid transaction currency: expected INR, got ${txn.currency}`);
+      }
+      if (txn.direction !== 'CREDIT' && txn.direction !== 'DEBIT') {
+        throw new Error(`Invalid transaction direction: expected CREDIT or DEBIT, got ${txn.direction}`);
       }
     }
 

@@ -55,6 +55,24 @@ export function providerIdToFieldElement(canonicalProviderId: string): bigint {
  * Strictly excludes ephemeral consent metadata (consentId, signature, generatedAt).
  * Retains authenticated account-owner binding, scoped time bounds, and normalized transactions.
  */
+export interface CanonicalTransactionInput {
+  txnId: string;
+  timestamp: number;
+  amountMinor: number | bigint; // exact integer paise
+  currency?: 'INR';
+  direction: 'CREDIT' | 'DEBIT';
+  rail: string;
+  remitterName?: string; // Authenticated remitter name (vital for platform classification)
+  remitterAccount?: string;
+  remitterVpa?: string;
+  reference?: string;
+}
+
+/**
+ * Canonical Preimage Structure for evidenceDataHash:
+ * Strictly excludes ephemeral consent metadata (consentId, signature, generatedAt).
+ * Retains authenticated account-owner binding, scoped time bounds, and normalized transactions.
+ */
 export interface CanonicalEvidencePreimage {
   version: 'GIGVAULT_CANONICAL_DATA_V1';
   accountOwner: {
@@ -65,23 +83,62 @@ export interface CanonicalEvidencePreimage {
     fromTimestamp: number;
     toTimestamp: number;
   };
-  transactions: Array<{
-    txnId: string;
-    timestamp: number;
-    amountMinor: number; // paise
-    direction: 'CREDIT' | 'DEBIT';
-    rail: string;
-    remitterVpa: string;
-    remitterAccount: string;
-    reference: string;
-  }>;
+  transactions: CanonicalTransactionInput[];
 }
 
 /**
- * Serialize canonical evidence preimage to deterministic JSON bytes.
+ * Deterministically normalize, sort, and serialize canonical evidence preimage to UTF-8 bytes.
+ * 
+ * Invariants:
+ * 1. String fields trimmed; VPA lowercased; nullifier lowercased.
+ * 2. Deterministic sort: timestamp ascending, then bytewise ASCII txnId ascending.
+ * 3. Rejects duplicate transaction IDs.
+ * 4. Alphabetically sorted object keys for deterministic JSON encoding.
  */
 export function serializeCanonicalEvidence(preimage: CanonicalEvidencePreimage): string {
-  // Ensure deterministic key ordering and trimmed values
+  // 1. Normalize and clean transactions
+  const cleanedTxns = preimage.transactions.map((t) => {
+    const cleanId = String(t.txnId).trim();
+    if (!cleanId) {
+      throw new Error('Canonical serializer error: transaction txnId cannot be empty');
+    }
+    const amountVal = typeof t.amountMinor === 'bigint' ? Number(t.amountMinor) : t.amountMinor;
+    if (!Number.isSafeInteger(amountVal) || amountVal < 0) {
+      throw new Error(`Canonical serializer error: invalid amountMinor ${t.amountMinor}`);
+    }
+
+    return {
+      amountMinor: amountVal,
+      currency: 'INR' as const,
+      direction: t.direction,
+      rail: String(t.rail).trim(),
+      reference: String(t.reference || '').trim(),
+      remitterAccount: String(t.remitterAccount || '').trim(),
+      remitterName: String(t.remitterName || '').trim(),
+      remitterVpa: String(t.remitterVpa || '').toLowerCase().trim(),
+      timestamp: t.timestamp,
+      txnId: cleanId,
+    };
+  });
+
+  // 2. Deterministic sorting: timestamp ascending, then ASCII txnId ascending
+  cleanedTxns.sort((a, b) => {
+    if (a.timestamp !== b.timestamp) {
+      return a.timestamp - b.timestamp;
+    }
+    return a.txnId < b.txnId ? -1 : (a.txnId > b.txnId ? 1 : 0);
+  });
+
+  // 3. Reject duplicate normalized transaction IDs
+  for (let i = 1; i < cleanedTxns.length; i++) {
+    if (cleanedTxns[i].txnId === cleanedTxns[i - 1].txnId) {
+      throw new Error(
+        `Duplicate transaction ID detected in authenticated dataset: ${cleanedTxns[i].txnId}`
+      );
+    }
+  }
+
+  // 4. Deterministic JSON serialization with alphabetically sorted keys
   return JSON.stringify({
     accountOwner: {
       accountId: preimage.accountOwner.accountId.trim(),
@@ -91,15 +148,17 @@ export function serializeCanonicalEvidence(preimage: CanonicalEvidencePreimage):
       fromTimestamp: preimage.timeBounds.fromTimestamp,
       toTimestamp: preimage.timeBounds.toTimestamp,
     },
-    transactions: preimage.transactions.map((t) => ({
+    transactions: cleanedTxns.map((t) => ({
       amountMinor: t.amountMinor,
+      currency: t.currency,
       direction: t.direction,
       rail: t.rail,
-      reference: t.reference.trim(),
-      remitterAccount: t.remitterAccount.trim(),
-      remitterVpa: t.remitterVpa.toLowerCase().trim(),
+      reference: t.reference,
+      remitterAccount: t.remitterAccount,
+      remitterName: t.remitterName,
+      remitterVpa: t.remitterVpa,
       timestamp: t.timestamp,
-      txnId: t.txnId.trim(),
+      txnId: t.txnId,
     })),
     version: preimage.version,
   });

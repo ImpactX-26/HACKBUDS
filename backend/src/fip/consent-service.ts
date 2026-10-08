@@ -11,20 +11,32 @@
 import crypto from 'node:crypto';
 import type { MockFIPStorage } from './storage.js';
 import type { ConsentRecord, ConsentScope } from './types.js';
+import type { VerifiedIdentityAssertion, WorkerWalletAuthorization } from '../identity/types.js';
+import { verifyWorkerAuthorization } from '../identity/wallet-auth.js';
+import { defaultMockIdp, MockIdentityProvider } from '../identity/mock-idp.js';
 
 export interface CreateConsentParams {
   accountId: string;
   authorizedIdentityNullifier?: string; // Identity nullifier of caller authorized to access this account
+  authorizedWalletAddress?: string;
   durationSeconds?: number; // Default 3600 (1 hour)
   fromTimestamp?: number; // Start of transaction window (Unix seconds)
   toTimestamp?: number; // End of transaction window (Unix seconds)
+  identityAssertion?: VerifiedIdentityAssertion;
+  walletAuthorization?: WorkerWalletAuthorization;
 }
 
 export class ConsentService {
   private storage: MockFIPStorage;
+  private idp: MockIdentityProvider;
 
-  constructor(storage: MockFIPStorage) {
+  constructor(storage: MockFIPStorage, idp: MockIdentityProvider = defaultMockIdp) {
     this.storage = storage;
+    this.idp = idp;
+  }
+
+  public getIdp(): MockIdentityProvider {
+    return this.idp;
   }
 
   /**
@@ -38,6 +50,8 @@ export class ConsentService {
       durationSeconds = 3600, // 1 hour default validity
       fromTimestamp = 0,
       toTimestamp = Math.floor(Date.now() / 1000),
+      identityAssertion,
+      walletAuthorization,
     } = params;
 
     // Verify account exists in Bank/FIP
@@ -46,14 +60,33 @@ export class ConsentService {
       throw new Error(`Account not found in Mock FIP: ${accountId}`);
     }
 
+    let authNullifier = authorizedIdentityNullifier ? authorizedIdentityNullifier.toLowerCase().trim() : undefined;
+    let authWallet = params.authorizedWalletAddress ? params.authorizedWalletAddress.toLowerCase().trim() : undefined;
+
+    if (identityAssertion && walletAuthorization) {
+      const verifiedId = this.idp.verifyAssertion(identityAssertion);
+      verifyWorkerAuthorization(walletAuthorization);
+
+      if (walletAuthorization.workerWalletAddress.toLowerCase() !== verifiedId.workerWalletAddress.toLowerCase()) {
+        throw new Error('UnauthorizedConsentCreation: wallet authorization does not match identity assertion wallet');
+      }
+      if (walletAuthorization.action !== 'CREATE_CONSENT') {
+        throw new Error(`UnauthorizedConsentCreation: wallet authorization action must be CREATE_CONSENT, got ${walletAuthorization.action}`);
+      }
+
+      authNullifier = verifiedId.workerIdentityNullifier.toLowerCase();
+      authWallet = walletAuthorization.workerWalletAddress.toLowerCase();
+    }
+
     // Account ownership authorization check
-    if (authorizedIdentityNullifier) {
-      const cleanNullifier = authorizedIdentityNullifier.toLowerCase().trim();
-      if (account.identityNullifierHash.toLowerCase().trim() !== cleanNullifier) {
+    if (authNullifier) {
+      if (account.identityNullifierHash.toLowerCase().trim() !== authNullifier) {
         throw new Error(
-          `UnauthorizedConsentCreation: identity ${cleanNullifier} is not authorized to create consent for account ${accountId}`
+          `UnauthorizedConsentCreation: identity ${authNullifier} is not authorized to create consent for account ${accountId}`
         );
       }
+    } else {
+      authNullifier = account.identityNullifierHash.toLowerCase().trim();
     }
 
     const nowSec = Math.floor(Date.now() / 1000);
@@ -69,6 +102,8 @@ export class ConsentService {
     const consent: ConsentRecord = {
       consentId,
       accountId,
+      authorizedIdentityNullifier: authNullifier,
+      authorizedWalletAddress: authWallet,
       status: 'ACTIVE',
       scope,
       createdAt: nowSec,

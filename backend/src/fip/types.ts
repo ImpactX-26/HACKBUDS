@@ -45,6 +45,8 @@ export interface ConsentScope {
 export interface ConsentRecord {
   consentId: string;
   accountId: string;
+  authorizedIdentityNullifier: string;
+  authorizedWalletAddress?: string;
   status: ConsentStatus;
   scope: ConsentScope;
   createdAt: number;

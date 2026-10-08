@@ -433,7 +433,14 @@ describe('GigPassport Contract Integration & State Machine (Mock Adapter)', () =
     await passportContract.authorizeReissue(ramesh.identityNullifierHash, adminWallet.address);
     assert.strictEqual(await passportContract.isReissueAllowed(ramesh.identityNullifierHash), true);
 
-    // 5. Attestation Service successfully mints replacement passport
+    // 5. Attestation Service successfully mints replacement passport with fresh authorization
+    const auth3 = await signWorkerAuthorization({
+      action: 'REISSUE_PASSPORT',
+      workerWalletAddress: newWorkerWallet.address,
+      consentId: consent2.consentId,
+      expectedPassportId: 2,
+    }, newWorkerWallet);
+
     const replacement = await attestationService.attestAndMintOnChain(
       {
         consentId: consent2.consentId,
@@ -442,7 +449,7 @@ describe('GigPassport Contract Integration & State Machine (Mock Adapter)', () =
         expectedPassportId: 2,
         cutoffTimestamp: fixedCutoff,
         identityAssertion: assertion2,
-        walletAuthorization: auth2,
+        walletAuthorization: auth3,
       },
       passportContract
     );

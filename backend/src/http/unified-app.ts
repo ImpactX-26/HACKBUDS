@@ -12,25 +12,32 @@ import { createAttestationApp } from './attestation-app.js';
 import { defaultFipStorage, MockFIPStorage } from '../fip/storage.js';
 import { ConsentService } from '../fip/consent-service.js';
 import { MockFIPService } from '../fip/fip-service.js';
+import { defaultMockIdp, type MockIdentityProvider } from '../identity/mock-idp.js';
 
 export interface UnifiedAppOptions {
   storage?: MockFIPStorage;
   consentService?: ConsentService;
   fipService?: MockFIPService;
-  idp?: any;
+  idp?: MockIdentityProvider;
   strictAuthentication?: boolean;
 }
 
 export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
   const storage = options.storage || defaultFipStorage;
-  const consentService = options.consentService || new ConsentService(storage);
-  const fipService = options.fipService || new MockFIPService(storage, consentService);
+  const idp = options.idp || defaultMockIdp;
+  const consentService = options.consentService || new ConsentService(storage, idp);
+  const fipService = options.fipService || new MockFIPService(storage, consentService, undefined, idp);
 
   const app = express();
   app.use(express.json());
 
   // Mount FIP app
-  const fipApp = createFipApp({ storage, consentService, fipService });
+  const fipApp = createFipApp({
+    storage,
+    consentService,
+    fipService,
+    strictAuthentication: options.strictAuthentication ?? true,
+  });
   app.use('/', fipApp);
 
   // Mount Attestation app (using in-process direct FIP service for speed and reliability)

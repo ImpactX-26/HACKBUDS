@@ -11,9 +11,11 @@
  */
 
 import { ethers } from 'ethers';
-import type { WorkerWalletAuthorization, WorkerActionType } from './types.js';
+import crypto from 'node:crypto';
+import type { WorkerActionType, WorkerWalletAuthorization } from './types.js';
 
 export function formatWorkerAuthMessage(auth: {
+  application?: string;
   action: WorkerActionType;
   workerWalletAddress: string;
   consentId: string;
@@ -24,6 +26,7 @@ export function formatWorkerAuthMessage(auth: {
 }): string {
   const lines = [
     'GigVault Worker Action Authorization',
+    `Application: ${auth.application ?? 'GigVault Protocol v1'}`,
     `Action: ${auth.action}`,
     `Wallet: ${auth.workerWalletAddress.toLowerCase().trim()}`,
     `Consent: ${auth.consentId.trim()}`,
@@ -38,6 +41,41 @@ export function formatWorkerAuthMessage(auth: {
   }
   return lines.join('\n');
 }
+
+export class ReplayProtectionRegistry {
+  private consumedNonces: Set<string> = new Set();
+  private consumedSignatures: Set<string> = new Set();
+
+  public consume(auth: WorkerWalletAuthorization): void {
+    const sigKey = auth.signature.toLowerCase();
+    if (this.consumedSignatures.has(sigKey)) {
+      throw new Error('ReplayAttackDetected: worker authorization signature already consumed');
+    }
+
+    if (auth.nonce) {
+      const nonceKey = `${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`;
+      if (this.consumedNonces.has(nonceKey)) {
+        throw new Error(`ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`);
+      }
+      this.consumedNonces.add(nonceKey);
+    }
+
+    this.consumedSignatures.add(sigKey);
+  }
+
+  public isConsumed(auth: WorkerWalletAuthorization): boolean {
+    if (this.consumedSignatures.has(auth.signature.toLowerCase())) return true;
+    if (auth.nonce && this.consumedNonces.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
+    return false;
+  }
+
+  public reset(): void {
+    this.consumedNonces.clear();
+    this.consumedSignatures.clear();
+  }
+}
+
+export const defaultReplayRegistry = new ReplayProtectionRegistry();
 
 /**
  * Sign authorization message using an ethers Wallet.
@@ -55,6 +93,7 @@ export async function signWorkerAuthorization(
   wallet: { signMessage: (message: string | Uint8Array) => Promise<string> }
 ): Promise<WorkerWalletAuthorization> {
   const timestamp = params.timestamp ?? Math.floor(Date.now() / 1000);
+  const nonce = params.nonce ?? crypto.randomUUID();
   const msg = formatWorkerAuthMessage({
     action: params.action,
     workerWalletAddress: params.workerWalletAddress,
@@ -62,7 +101,7 @@ export async function signWorkerAuthorization(
     expectedPassportId: params.expectedPassportId,
     timestamp,
     chainId: params.chainId,
-    nonce: params.nonce,
+    nonce,
   });
 
   const signature = await wallet.signMessage(msg);
@@ -75,7 +114,7 @@ export async function signWorkerAuthorization(
     timestamp,
     signature,
     chainId: params.chainId,
-    nonce: params.nonce,
+    nonce,
   };
 }
 
@@ -122,6 +161,29 @@ export function verifyWorkerAuthorization(
     recoveredAddress = ethers.verifyMessage(msg, auth.signature);
   } catch (err: any) {
     throw new Error(`Failed to recover wallet signer: ${err.message}`);
+  }
+
+  if (recoveredAddress.toLowerCase() !== auth.workerWalletAddress.toLowerCase()) {
+    // Try legacy format without Application header if needed for compatibility
+    const legacyLines = [
+      'GigVault Worker Action Authorization',
+      `Action: ${auth.action}`,
+      `Wallet: ${auth.workerWalletAddress.toLowerCase().trim()}`,
+      `Consent: ${auth.consentId.trim()}`,
+      `Expected Passport ID: ${auth.expectedPassportId}`,
+      `Timestamp: ${auth.timestamp}`,
+    ];
+    if (auth.chainId !== undefined) legacyLines.push(`Chain ID: ${auth.chainId}`);
+    if (auth.nonce !== undefined) legacyLines.push(`Nonce: ${auth.nonce}`);
+    const legacyMsg = legacyLines.join('\n');
+    try {
+      const legacyRecovered = ethers.verifyMessage(legacyMsg, auth.signature);
+      if (legacyRecovered.toLowerCase() === auth.workerWalletAddress.toLowerCase()) {
+        recoveredAddress = legacyRecovered;
+      }
+    } catch {
+      // ignore
+    }
   }
 
   if (recoveredAddress.toLowerCase() !== auth.workerWalletAddress.toLowerCase()) {

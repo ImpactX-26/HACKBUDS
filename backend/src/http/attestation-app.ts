@@ -48,14 +48,25 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
   const fipVerifier = new FIPVerifier(trustedFipPublicKeys);
 
   // Helper to fetch signed envelope from FIP (in-process or over HTTP)
-  async function fetchFipEnvelope(consentId: string, cutoffTs?: number): Promise<SignedFIPEnvelope> {
+  async function fetchFipEnvelope(
+    consentId: string,
+    cutoffTs?: number,
+    auth?: { identityAssertion?: any; walletAuthorization?: any }
+  ): Promise<SignedFIPEnvelope> {
     if (fipService) {
-      return fipService.fetchSignedDataByConsent(consentId, cutoffTs);
+      return fipService.fetchSignedDataByConsent(consentId, cutoffTs, undefined, auth);
     }
     if (fipBaseUrl) {
       const url = new URL(`${fipBaseUrl}/fip/data/${consentId}`);
       if (cutoffTs) url.searchParams.set('cutoffTimestamp', String(cutoffTs));
-      const res = await fetch(url.toString());
+      const headers: Record<string, string> = {};
+      if (auth?.identityAssertion) {
+        headers['x-identity-assertion'] = JSON.stringify(auth.identityAssertion);
+      }
+      if (auth?.walletAuthorization) {
+        headers['x-wallet-authorization'] = JSON.stringify(auth.walletAuthorization);
+      }
+      const res = await fetch(url.toString(), { headers });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as any;
         throw new Error(body.message || `FIP fetch failed with status ${res.status}`);
@@ -196,7 +207,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       }
 
       // Step C: Fetch directly from Mock FIP
-      const envelope = await fetchFipEnvelope(consentId, cutoffTimestamp);
+      const envelope = await fetchFipEnvelope(consentId, cutoffTimestamp, { identityAssertion, walletAuthorization });
 
       // Step D: Verify FIP signature & account-owner identity matching gate (fail closed)
       const verification = fipVerifier.verifyEnvelope(envelope, cleanNullifier);
@@ -230,7 +241,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       });
     } catch (err: any) {
       const msg = err.message || 'Attestation failed';
-      if (msg.includes('Account owner binding mismatch')) {
+      if (msg.includes('Account owner binding mismatch') || msg.includes('UnauthorizedFIPRetrieval')) {
         res.status(403).json({ error: 'ACCOUNT_OWNER_MISMATCH', message: msg });
       } else if (msg.includes('FIP signature invalid') || msg.includes('payload hash mismatch') || msg.includes('Untrusted FIP public key')) {
         res.status(400).json({ error: 'FIP_SIGNATURE_INVALID', message: msg });
@@ -329,7 +340,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       }
 
       // Re-fetch authenticated transactions under valid consent
-      const envelope = await fetchFipEnvelope(consentId, evidenceUpdatedAt);
+      const envelope = await fetchFipEnvelope(consentId, evidenceUpdatedAt, { identityAssertion, walletAuthorization });
 
       // Verify signature & owner binding
       const verification = fipVerifier.verifyEnvelope(envelope, cleanNullifier);

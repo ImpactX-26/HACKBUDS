@@ -11,24 +11,77 @@
  * requiring coordination with Backend B before freezing.
  */
 
-import crypto from 'node:crypto';
 import type { RawTransaction, AccountOwnerBinding } from '../fip/types.js';
+import {
+  serializeCanonicalEvidence,
+  computeCanonicalEvidenceDataHash,
+  type CanonicalEvidencePreimage,
+} from '../../../shared/proposal/canonical-evidence-schema.js';
+
+export {
+  serializeCanonicalEvidence,
+  computeCanonicalEvidenceDataHash,
+  type CanonicalEvidencePreimage,
+};
 
 export interface NormalizedEvidenceDataset {
-  accountOwnerBinding: {
+  accountOwner: {
     accountId: string;
     identityNullifierHash: string;
+  };
+  timeBounds: {
+    fromTimestamp: number;
+    toTimestamp: number;
   };
   transactions: Array<{
     txnId: string;
     timestamp: number;
     amountMinor: number;
-    direction: string;
+    currency: 'INR';
+    direction: 'CREDIT' | 'DEBIT';
     rail: string;
+    remitterName: string;
     remitterVpa: string;
     remitterAccount: string;
     reference: string;
   }>;
+  version: 'GIGVAULT_CANONICAL_DATA_V1';
+}
+
+/**
+ * Build canonical evidence preimage adhering to jointly reviewed Gate 1 format.
+ */
+export function buildCanonicalPreimage(
+  accountOwnerBinding: AccountOwnerBinding,
+  transactions: RawTransaction[],
+  cutoffTs: number
+): CanonicalEvidencePreimage {
+  const eligibleTxns = transactions.filter((t) => t.timestamp <= cutoffTs);
+  const fromTs = eligibleTxns.length > 0 ? Math.min(...eligibleTxns.map((t) => t.timestamp)) : 0;
+
+  return {
+    version: 'GIGVAULT_CANONICAL_DATA_V1',
+    accountOwner: {
+      accountId: accountOwnerBinding.accountId.trim(),
+      identityNullifierHash: accountOwnerBinding.identityNullifierHash.toLowerCase().trim(),
+    },
+    timeBounds: {
+      fromTimestamp: fromTs,
+      toTimestamp: cutoffTs,
+    },
+    transactions: eligibleTxns.map((t) => ({
+      txnId: t.txnId,
+      timestamp: t.timestamp,
+      amountMinor: t.amountMinor,
+      currency: t.currency ?? 'INR',
+      direction: t.direction,
+      rail: t.rail,
+      remitterName: (t.remitter.name || '').trim(),
+      remitterAccount: (t.remitter.account || '').trim(),
+      remitterVpa: (t.remitter.vpa || '').toLowerCase().trim(),
+      reference: t.reference.trim(),
+    })),
+  };
 }
 
 /**
@@ -39,44 +92,9 @@ export function normalizeAuthenticatedData(
   transactions: RawTransaction[],
   cutoffTs: number
 ): NormalizedEvidenceDataset {
-  // Filter on or before cutoff
-  const eligibleTxns = transactions.filter((t) => t.timestamp <= cutoffTs);
-
-  // Stable sort: timestamp ascending, then bytewise ASCII txnId ascending (no locale dependency)
-  const sortedTxns = [...eligibleTxns].sort((a, b) => {
-    if (a.timestamp !== b.timestamp) {
-      return a.timestamp - b.timestamp;
-    }
-    const idA = a.txnId.trim();
-    const idB = b.txnId.trim();
-    return idA < idB ? -1 : (idA > idB ? 1 : 0);
-  });
-
-  // Reject duplicate normalized transaction IDs
-  for (let i = 1; i < sortedTxns.length; i++) {
-    if (sortedTxns[i].txnId.trim() === sortedTxns[i - 1].txnId.trim()) {
-      throw new Error(
-        `Duplicate transaction ID detected in authenticated dataset: ${sortedTxns[i].txnId.trim()}`
-      );
-    }
-  }
-
-  return {
-    accountOwnerBinding: {
-      accountId: accountOwnerBinding.accountId.trim(),
-      identityNullifierHash: accountOwnerBinding.identityNullifierHash.toLowerCase().trim(),
-    },
-    transactions: sortedTxns.map((t) => ({
-      txnId: t.txnId.trim(),
-      timestamp: t.timestamp,
-      amountMinor: t.amountMinor,
-      direction: t.direction,
-      rail: t.rail,
-      remitterVpa: (t.remitter.vpa || '').toLowerCase().trim(),
-      remitterAccount: (t.remitter.account || '').trim(),
-      reference: t.reference.trim(),
-    })),
-  };
+  const preimage = buildCanonicalPreimage(accountOwnerBinding, transactions, cutoffTs);
+  const serialized = serializeCanonicalEvidence(preimage);
+  return JSON.parse(serialized);
 }
 
 /**
@@ -87,7 +105,6 @@ export function computeEvidenceDataHash(
   transactions: RawTransaction[],
   cutoffTs: number
 ): string {
-  const normalized = normalizeAuthenticatedData(accountOwnerBinding, transactions, cutoffTs);
-  const serialized = JSON.stringify(normalized);
-  return crypto.createHash('sha256').update(serialized, 'utf8').digest('hex');
+  const preimage = buildCanonicalPreimage(accountOwnerBinding, transactions, cutoffTs);
+  return computeCanonicalEvidenceDataHash(preimage).sha256Hex;
 }

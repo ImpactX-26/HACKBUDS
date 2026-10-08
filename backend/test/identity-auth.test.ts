@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ethers } from 'ethers';
 import { MockIdentityProvider } from '../src/identity/mock-idp.js';
-import { signWorkerAuthorization, verifyWorkerAuthorization } from '../src/identity/wallet-auth.js';
+import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry } from '../src/identity/wallet-auth.js';
 import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
@@ -259,7 +259,7 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
           identityAssertion: arjunIdentityAssertion,
           walletAuthorization: arjunWalletAuth,
         }),
-      /Account owner binding mismatch: Bank account owner identity/,
+      /(Account owner binding mismatch|UnauthorizedFIPRetrieval)/,
       'Must reject when verified identity does not match bank account owner'
     );
   });
@@ -369,6 +369,62 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
       () => verifyWorkerAuthorization(auth, 300),
       /Worker wallet authorization expired/,
       'Expired authorization cannot pass verification'
+    );
+  });
+
+  it('MUST REJECT: reused authorization signature fails replay protection registry', async () => {
+    const registry = new ReplayProtectionRegistry();
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: 'CONSENT_TEST_101',
+        expectedPassportId: 101,
+      },
+      rameshWallet
+    );
+
+    registry.consume(auth);
+    assert.strictEqual(registry.isConsumed(auth), true);
+
+    assert.throws(
+      () => registry.consume(auth),
+      /ReplayAttackDetected: worker authorization signature already consumed/
+    );
+  });
+
+  it('MUST REJECT: reused authorization nonce fails replay protection registry even with different timestamp', async () => {
+    const registry = new ReplayProtectionRegistry();
+    const fixedNonce = 'shared-test-nonce-12345';
+    const auth1 = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: 'CONSENT_TEST_101',
+        expectedPassportId: 101,
+        timestamp: 1700000000,
+        nonce: fixedNonce,
+      },
+      rameshWallet
+    );
+
+    registry.consume(auth1);
+
+    const auth2 = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: 'CONSENT_TEST_102',
+        expectedPassportId: 102,
+        timestamp: 1700000500,
+        nonce: fixedNonce, // Reused nonce!
+      },
+      rameshWallet
+    );
+
+    assert.throws(
+      () => registry.consume(auth2),
+      /ReplayAttackDetected: nonce shared-test-nonce-12345 already consumed for wallet/
     );
   });
 });

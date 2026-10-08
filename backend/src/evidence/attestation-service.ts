@@ -22,7 +22,7 @@ import type { MockFIPService } from '../fip/fip-service.js';
 import { CURRENT_DIRECTORY_VERSION } from './directory/registry.js';
 import type { VerifiedIdentityAssertion, WorkerWalletAuthorization } from '../identity/types.js';
 import { MockIdentityProvider, defaultMockIdp } from '../identity/mock-idp.js';
-import { verifyWorkerAuthorization } from '../identity/wallet-auth.js';
+import { verifyWorkerAuthorization, ReplayProtectionRegistry } from '../identity/wallet-auth.js';
 import type { IGigPassportClient, EvidenceCommitmentData } from './passport-client.js';
 
 export interface AttestationRequest {
@@ -68,6 +68,7 @@ export class AttestationService {
   private fipService: MockFIPService;
   private fipVerifier: FIPVerifier;
   private idp: MockIdentityProvider;
+  private replayRegistry: ReplayProtectionRegistry;
 
   constructor(
     fipService: MockFIPService,
@@ -77,6 +78,13 @@ export class AttestationService {
     this.fipService = fipService;
     this.fipVerifier = new FIPVerifier(trustedFipPublicKeys);
     this.idp = idp;
+    this.replayRegistry = new ReplayProtectionRegistry();
+
+    // Link trusted IDP with fipService so that private FIP data fetches verify caller authorization against the configured IDP
+    const fipIdp = this.fipService?.getIdp?.();
+    if (fipIdp && typeof fipIdp.registerTrustedIdpKey === 'function') {
+      fipIdp.registerTrustedIdpKey(this.idp.getPublicKeyPem());
+    }
   }
 
   /**
@@ -134,10 +142,16 @@ export class AttestationService {
       );
     }
     verifyWorkerAuthorization(walletAuthorization, 300);
+    this.replayRegistry.consume(walletAuthorization);
 
     // 3. Server-to-server signed fetch from Mock FIP
     // Cutoff timestamp is strictly for evidence transaction filtering, not consent expiry
-    const signedEnvelope = this.fipService.fetchSignedDataByConsent(consentId, cutoffTimestamp);
+    const signedEnvelope = this.fipService.fetchSignedDataByConsent(
+      consentId,
+      cutoffTimestamp,
+      undefined,
+      { identityAssertion, walletAuthorization }
+    );
 
     // 4. Cryptographic verification & account-owner identity matching gate (fail closed)
     const verification = this.fipVerifier.verifyEnvelope(signedEnvelope, cleanNullifier);
@@ -215,9 +229,15 @@ export class AttestationService {
       throw new Error('Wallet authorization passport ID mismatch');
     }
     verifyWorkerAuthorization(walletAuthorization, 300);
+    this.replayRegistry.consume(walletAuthorization);
 
     // 3. Server-to-server signed fetch from Mock FIP
-    const signedEnvelope = this.fipService.fetchSignedDataByConsent(consentId, evidenceUpdatedAt);
+    const signedEnvelope = this.fipService.fetchSignedDataByConsent(
+      consentId,
+      evidenceUpdatedAt,
+      undefined,
+      { identityAssertion, walletAuthorization }
+    );
 
     // 4. Verify FIP signature & account-owner identity matching gate
     const verification = this.fipVerifier.verifyEnvelope(signedEnvelope, cleanNullifier);

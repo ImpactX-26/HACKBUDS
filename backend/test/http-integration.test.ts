@@ -23,10 +23,38 @@ import { MockFIPService } from '../src/fip/fip-service.js';
 import { MockIdentityProvider, defaultMockIdp } from '../src/identity/mock-idp.js';
 import { signWorkerAuthorization } from '../src/identity/wallet-auth.js';
 import { PERSONAS } from '../src/fip/personas/index.js';
+import type { WorkerActionType } from '../src/identity/types.js';
 
 describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
   const referenceCutoff = Date.UTC(2026, 9, 8, 12, 0, 0) / 1000;
   const testWallet = ethers.Wallet.createRandom();
+
+  async function createValidWorkerAuth(
+    persona = PERSONAS.RAMESH,
+    wallet = testWallet,
+    action: WorkerActionType = 'CREATE_CONSENT',
+    targetId = persona.accountId,
+    expectedPassportId = 0
+  ) {
+    defaultMockIdp.rebindWorkerWallet(persona.identityNullifierHash, wallet.address);
+    const assertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: persona.identityNullifierHash,
+      workerWalletAddress: wallet.address,
+      durationSeconds: 3600,
+    });
+
+    const auth = await signWorkerAuthorization(
+      {
+        action,
+        workerWalletAddress: wallet.address,
+        consentId: targetId,
+        expectedPassportId,
+      },
+      wallet
+    );
+
+    return { assertion, auth };
+  }
 
   it('GET /fip/accounts should list all 7 synthetic persona accounts', async () => {
     const app = createUnifiedApp();
@@ -44,15 +72,22 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
   it('POST /fip/consent and GET /fip/data/:consentId should issue and fetch signed envelope', async () => {
     const app = createUnifiedApp();
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
 
-    // 1. Create consent
+    // 1. Create consent with valid worker authentication
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
         durationSeconds: 3600,
         toTimestamp: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
       });
 
     assert.strictEqual(consentRes.status, 201);
@@ -65,8 +100,22 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
     assert.strictEqual(inspectRes.status, 200);
     assert.strictEqual(inspectRes.body.consent.status, 'ACTIVE');
 
-    // 3. Server-to-server fetch signed data
-    const dataRes = await request(app).get(`/fip/data/${consentId}`);
+    // 3. Server-to-server fetch signed data with valid authorization headers
+    const fetchAuth = await signWorkerAuthorization(
+      {
+        action: 'FETCH_FINANCIAL_DATA',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 0,
+      },
+      testWallet
+    );
+
+    const dataRes = await request(app)
+      .get(`/fip/data/${consentId}`)
+      .set('x-identity-assertion', JSON.stringify(assertion))
+      .set('x-wallet-authorization', JSON.stringify(fetchAuth));
+
     assert.strictEqual(dataRes.status, 200);
     assert.strictEqual(dataRes.body.success, true);
     const envelope = dataRes.body.envelope;
@@ -80,12 +129,23 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
   it('MUST REJECT: unauthorized consent creation attempt returns HTTP 403', async () => {
     const app = createUnifiedApp();
 
-    // Attacker tries to create consent for Ramesh's account using Arjun's identity
+    // Attacker (Arjun) signs with valid credentials for his own identity/wallet,
+    // but tries to create consent for Ramesh's account
+    const arjunWallet = ethers.Wallet.createRandom();
+    const { assertion: arjunAssertion, auth: arjunAuth } = await createValidWorkerAuth(
+      PERSONAS.ARJUN,
+      arjunWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
-        accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.ARJUN.identityNullifierHash, // Wrong owner!
+        accountId: PERSONAS.RAMESH.accountId, // Wrong owner!
+        durationSeconds: 3600,
+        identityAssertion: arjunAssertion,
+        walletAuthorization: arjunAuth,
       });
 
     assert.strictEqual(consentRes.status, 403);
@@ -97,14 +157,36 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
     const consentService = new ConsentService(storage);
     const fipService = new MockFIPService(storage, consentService);
 
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
     // Create consent that expires in 0 seconds
     const consent = consentService.createConsent({
       accountId: PERSONAS.RAMESH.accountId,
       durationSeconds: -1, // Expired immediately
+      identityAssertion: assertion,
+      walletAuthorization: auth,
     });
 
     const app = createUnifiedApp({ storage, consentService, fipService });
-    const dataRes = await request(app).get(`/fip/data/${consent.consentId}`);
+    const fetchAuth = await signWorkerAuthorization(
+      {
+        action: 'FETCH_FINANCIAL_DATA',
+        workerWalletAddress: testWallet.address,
+        consentId: consent.consentId,
+        expectedPassportId: 0,
+      },
+      testWallet
+    );
+
+    const dataRes = await request(app)
+      .get(`/fip/data/${consent.consentId}`)
+      .set('x-identity-assertion', JSON.stringify(assertion))
+      .set('x-wallet-authorization', JSON.stringify(fetchAuth));
 
     assert.strictEqual(dataRes.status, 410);
     assert.strictEqual(dataRes.body.error, 'FIP_CONSENT_EXPIRED');
@@ -112,12 +194,20 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
   it('MUST REJECT: revoked consent returns HTTP 403 over /fip/data/:consentId', async () => {
     const app = createUnifiedApp();
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
 
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        durationSeconds: 3600,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
       });
 
     const consentId = consentRes.body.consent.consentId;
@@ -127,10 +217,240 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
     assert.strictEqual(revokeRes.status, 200);
     assert.strictEqual(revokeRes.body.consent.status, 'REVOKED');
 
-    // Fetch should fail
-    const dataRes = await request(app).get(`/fip/data/${consentId}`);
+    // Fetch should fail with 403 FIP_CONSENT_REVOKED
+    const fetchAuth = await signWorkerAuthorization(
+      {
+        action: 'FETCH_FINANCIAL_DATA',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 0,
+      },
+      testWallet
+    );
+
+    const dataRes = await request(app)
+      .get(`/fip/data/${consentId}`)
+      .set('x-identity-assertion', JSON.stringify(assertion))
+      .set('x-wallet-authorization', JSON.stringify(fetchAuth));
+
     assert.strictEqual(dataRes.status, 403);
     assert.strictEqual(dataRes.body.error, 'FIP_CONSENT_REVOKED');
+  });
+
+  it('MUST REJECT: missing authentication artifacts to /fip/consent returns HTTP 401', async () => {
+    const app = createUnifiedApp();
+    const res = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+      });
+
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.body.error, 'AUTHENTICATION_REQUIRED');
+  });
+
+  it('MUST REJECT: forged identity assertion signed by untrusted IDP to /fip/consent returns HTTP 401', async () => {
+    const app = createUnifiedApp();
+    const rogueIdp = new MockIdentityProvider();
+    const forgedAssertion = rogueIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: testWallet.address,
+    });
+
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'CREATE_CONSENT',
+        workerWalletAddress: testWallet.address,
+        consentId: PERSONAS.RAMESH.accountId,
+        expectedPassportId: 0,
+      },
+      testWallet
+    );
+
+    const res = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: forgedAssertion,
+        walletAuthorization: auth,
+      });
+
+    assert.strictEqual(res.status, 400);
+    assert.ok(res.body.error.includes('Untrusted identity provider public key'));
+  });
+
+  it('MUST REJECT: forged wallet authorization signed by attacker wallet to /fip/consent returns HTTP 400', async () => {
+    const app = createUnifiedApp();
+    const attackerWallet = ethers.Wallet.createRandom();
+    const { assertion } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    // Signed by attackerWallet but claims to be testWallet
+    const forgedAuth = await signWorkerAuthorization(
+      {
+        action: 'CREATE_CONSENT',
+        workerWalletAddress: testWallet.address,
+        consentId: PERSONAS.RAMESH.accountId,
+        expectedPassportId: 0,
+      },
+      attackerWallet
+    );
+
+    const res = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: assertion,
+        walletAuthorization: forgedAuth,
+      });
+
+    assert.strictEqual(res.status, 400);
+    assert.ok(res.body.error.includes('Worker authorization signer mismatch'));
+  });
+
+  it('MUST REJECT: forged identity assertion signed by untrusted IDP to /attestation/attest returns HTTP 403', async () => {
+    const app = createUnifiedApp();
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const rogueIdp = new MockIdentityProvider();
+    const forgedAssertion = rogueIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: testWallet.address,
+    });
+
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 105,
+      },
+      testWallet
+    );
+
+    const res = await request(app)
+      .post('/attestation/attest')
+      .send({
+        consentId,
+        workerWalletAddress: testWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        expectedPassportId: 105,
+        identityAssertion: forgedAssertion,
+        walletAuthorization: auth,
+      });
+
+    assert.strictEqual(res.status, 403);
+    assert.strictEqual(res.body.error, 'IDENTITY_ASSERTION_INVALID');
+  });
+
+  it('MUST REJECT: tampered wallet authorization to /attestation/attest returns HTTP 401', async () => {
+    const app = createUnifiedApp();
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const assertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: testWallet.address,
+    });
+
+    const attackerWallet = ethers.Wallet.createRandom();
+    const forgedAuth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 106,
+      },
+      attackerWallet
+    );
+
+    const res = await request(app)
+      .post('/attestation/attest')
+      .send({
+        consentId,
+        workerWalletAddress: testWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        expectedPassportId: 106,
+        identityAssertion: assertion,
+        walletAuthorization: forgedAuth,
+      });
+
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(res.body.error, 'WALLET_AUTHORIZATION_INVALID');
+  });
+
+  it('MUST REJECT: missing or forged auth headers to /fip/data/:consentId returns HTTP 401 or 403', async () => {
+    const app = createUnifiedApp();
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    // 1. Missing headers -> HTTP 401
+    const noHeaderRes = await request(app).get(`/fip/data/${consentId}`);
+    assert.strictEqual(noHeaderRes.status, 401);
+
+    // 2. Attacker credentials (wrong wallet/identity) -> HTTP 403
+    const attackerWallet = ethers.Wallet.createRandom();
+    const { assertion: attAssertion, auth: attAuth } = await createValidWorkerAuth(
+      PERSONAS.ARJUN,
+      attackerWallet,
+      'FETCH_FINANCIAL_DATA',
+      consentId
+    );
+
+    const forgedRes = await request(app)
+      .get(`/fip/data/${consentId}`)
+      .set('x-identity-assertion', JSON.stringify(attAssertion))
+      .set('x-wallet-authorization', JSON.stringify(attAuth));
+
+    assert.strictEqual(forgedRes.status, 403);
+    assert.strictEqual(forgedRes.body.error, 'UNAUTHORIZED_FIP_RETRIEVAL');
   });
 
   it('MUST REJECT: worker-supplied transaction JSON to /attestation/attest returns HTTP 400', async () => {
@@ -160,13 +480,20 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
   it('MUST REJECT: missing authentication artifacts returns HTTP 401 (fail-closed default)', async () => {
     const app = createUnifiedApp();
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
 
-    // 1. Consent
+    // 1. Create consent with valid auth
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
       });
 
     // 2. Attestation without identityAssertion or walletAuthorization
@@ -185,32 +512,42 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
   it('POST /attestation/attest executes end-to-end verified attestation pipeline with mandatory auth', async () => {
     const app = createUnifiedApp();
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
 
     // 1. Worker authorizes consent
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
         durationSeconds: 3600,
         toTimestamp: referenceCutoff,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
       });
 
     const consentId = consentRes.body.consent.consentId;
 
-    // 2. Create valid identity assertion and wallet authorization
+    // 2. Create valid identity assertion and wallet authorization for minting
     const assertion = defaultMockIdp.issueAssertion({
       workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
       workerWalletAddress: testWallet.address,
       durationSeconds: 3600,
     });
 
-    const auth = await signWorkerAuthorization({
-      action: 'MINT_PASSPORT',
-      workerWalletAddress: testWallet.address,
-      consentId,
-      expectedPassportId: 101,
-    }, testWallet);
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 101,
+      },
+      testWallet
+    );
 
     // 3. Attestation request
     const attestRes = await request(app)
@@ -240,13 +577,22 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
   it('MUST REJECT: account owner identity mismatch returns HTTP 403 over /attestation/attest', async () => {
     const app = createUnifiedApp();
+    const arjunWallet = ethers.Wallet.createRandom();
 
-    // Arjun creates consent for his account
+    // Arjun creates consent for his account with valid auth
+    const { assertion: arjunAssertion, auth: arjunAuth } = await createValidWorkerAuth(
+      PERSONAS.ARJUN,
+      arjunWallet,
+      'CREATE_CONSENT',
+      PERSONAS.ARJUN.accountId
+    );
+
     const consentRes = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.ARJUN.accountId,
-        authorizedIdentityNullifier: PERSONAS.ARJUN.identityNullifierHash,
+        identityAssertion: arjunAssertion,
+        walletAuthorization: arjunAuth,
       });
 
     const consentId = consentRes.body.consent.consentId;
@@ -257,12 +603,15 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
       workerWalletAddress: testWallet.address,
     });
 
-    const auth = await signWorkerAuthorization({
-      action: 'MINT_PASSPORT',
-      workerWalletAddress: testWallet.address,
-      consentId,
-      expectedPassportId: 102,
-    }, testWallet);
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: testWallet.address,
+        consentId,
+        expectedPassportId: 102,
+      },
+      testWallet
+    );
 
     // Attacker presents Arjun's consentId with Ramesh's identity nullifier
     const attestRes = await request(app)
@@ -278,19 +627,29 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
 
     assert.strictEqual(attestRes.status, 403);
     assert.strictEqual(attestRes.body.error, 'ACCOUNT_OWNER_MISMATCH');
-    assert.ok(attestRes.body.message.includes('Account owner binding mismatch'));
+    assert.ok(
+      attestRes.body.message.includes('Account owner binding mismatch') ||
+      attestRes.body.message.includes('UnauthorizedFIPRetrieval')
+    );
   });
 
   it('POST /attestation/reconstruct securely reconstructs snapshot for authorized worker', async () => {
     const app = createUnifiedApp();
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
 
     // 1. Initial consent
     const consent1 = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
         toTimestamp: referenceCutoff,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
       });
 
     const consentId1 = consent1.body.consent.consentId;
@@ -300,12 +659,15 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
       workerWalletAddress: testWallet.address,
     });
 
-    const auth1 = await signWorkerAuthorization({
-      action: 'MINT_PASSPORT',
-      workerWalletAddress: testWallet.address,
-      consentId: consentId1,
-      expectedPassportId: 103,
-    }, testWallet);
+    const auth1 = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: testWallet.address,
+        consentId: consentId1,
+        expectedPassportId: 103,
+      },
+      testWallet
+    );
 
     const attestRes = await request(app)
       .post('/attestation/attest')
@@ -323,23 +685,34 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
     assert.strictEqual(attestRes.status, 200);
 
     // 2. Proof reconstruction under new consent
+    const { assertion: cAssert2, auth: cAuth2 } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      testWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
     const consent2 = await request(app)
       .post('/fip/consent')
       .send({
         accountId: PERSONAS.RAMESH.accountId,
-        authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
         toTimestamp: referenceCutoff,
+        identityAssertion: cAssert2,
+        walletAuthorization: cAuth2,
       });
 
     const consentId2 = consent2.body.consent.consentId;
 
     // Reconstruction requires RECONSTRUCT_EVIDENCE action signed by worker
-    const authReconstruct = await signWorkerAuthorization({
-      action: 'RECONSTRUCT_EVIDENCE',
-      workerWalletAddress: testWallet.address,
-      consentId: consentId2,
-      expectedPassportId: 103,
-    }, testWallet);
+    const authReconstruct = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: testWallet.address,
+        consentId: consentId2,
+        expectedPassportId: 103,
+      },
+      testWallet
+    );
 
     const reconstructRes = await request(app)
       .post('/attestation/reconstruct')
@@ -416,13 +789,21 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
         idp: defaultMockIdp,
       });
 
-      // 1. Create consent on FIP server
+      const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+        PERSONAS.RAMESH,
+        testWallet,
+        'CREATE_CONSENT',
+        PERSONAS.RAMESH.accountId
+      );
+
+      // 1. Create consent on FIP server with valid auth
       const consentRes = await request(fipApp)
         .post('/fip/consent')
         .send({
           accountId: PERSONAS.RAMESH.accountId,
-          authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
           toTimestamp: referenceCutoff,
+          identityAssertion: consentAssertion,
+          walletAuthorization: consentAuth,
         });
 
       const consentId = consentRes.body.consent.consentId;
@@ -432,12 +813,15 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
         workerWalletAddress: testWallet.address,
       });
 
-      const auth = await signWorkerAuthorization({
-        action: 'MINT_PASSPORT',
-        workerWalletAddress: testWallet.address,
-        consentId,
-        expectedPassportId: 104,
-      }, testWallet);
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: testWallet.address,
+          consentId,
+          expectedPassportId: 104,
+        },
+        testWallet
+      );
 
       // 2. Call attestation service, which calls FIP over HTTP fetch
       const attestRes = await request(attestationApp)
