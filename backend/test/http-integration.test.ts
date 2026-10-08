@@ -845,4 +845,185 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
       await new Promise<void>((resolve) => fipServer.close(() => resolve()));
     }
   });
+
+  it('MUST REJECT: duplicate submission of identical attestation request returns HTTP 409 REPLAY_ATTACK_DETECTED', async () => {
+    const app = createUnifiedApp();
+    const replayWallet = ethers.Wallet.createRandom();
+
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      replayWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        durationSeconds: 3600,
+        toTimestamp: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const attestAssertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: replayWallet.address,
+    });
+
+    const attestAuth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: replayWallet.address,
+        consentId,
+        expectedPassportId: 501,
+      },
+      replayWallet
+    );
+
+    const payload = {
+      consentId,
+      workerWalletAddress: replayWallet.address,
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      expectedPassportId: 501,
+      sourceDirectoryVersion: 3,
+      cutoffTimestamp: referenceCutoff,
+      identityAssertion: attestAssertion,
+      walletAuthorization: attestAuth,
+    };
+
+    // First submission: succeeds with HTTP 200
+    const res1 = await request(app).post('/attestation/attest').send(payload);
+    assert.strictEqual(res1.status, 200);
+
+    // Second submission with exact same wallet authorization: REPLAY REJECTED with HTTP 409
+    const res2 = await request(app).post('/attestation/attest').send(payload);
+    assert.strictEqual(res2.status, 409);
+    assert.strictEqual(res2.body.error, 'REPLAY_ATTACK_DETECTED');
+  });
+
+  it('MUST REJECT: unauthorized worker action to /attestation/attest returns HTTP 400 UNAUTHORIZED_WORKER_ACTION', async () => {
+    const app = createUnifiedApp();
+    const actionWallet = ethers.Wallet.createRandom();
+
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      actionWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const attestAssertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: actionWallet.address,
+    });
+
+    // Attacker signs RECONSTRUCT_EVIDENCE (which is forbidden for attestation/issuance)
+    const unauthorizedAuth = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: actionWallet.address,
+        consentId,
+        expectedPassportId: 502,
+      },
+      actionWallet
+    );
+
+    const res = await request(app).post('/attestation/attest').send({
+      consentId,
+      workerWalletAddress: actionWallet.address,
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      expectedPassportId: 502,
+      sourceDirectoryVersion: 3,
+      cutoffTimestamp: referenceCutoff,
+      identityAssertion: attestAssertion,
+      walletAuthorization: unauthorizedAuth,
+    });
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.error, 'UNAUTHORIZED_WORKER_ACTION');
+  });
+
+  it('MUST REJECT: unpublished directory version (e.g. 999999) returns HTTP 400 UNPUBLISHED_DIRECTORY_VERSION', async () => {
+    const app = createUnifiedApp();
+    const dirWallet = ethers.Wallet.createRandom();
+
+    const { assertion, auth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      dirWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        identityAssertion: assertion,
+        walletAuthorization: auth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const attestAssertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: dirWallet.address,
+    });
+
+    const attestAuth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: dirWallet.address,
+        consentId,
+        expectedPassportId: 503,
+      },
+      dirWallet
+    );
+
+    const res = await request(app).post('/attestation/attest').send({
+      consentId,
+      workerWalletAddress: dirWallet.address,
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      expectedPassportId: 503,
+      sourceDirectoryVersion: 999999, // Unpublished version!
+      cutoffTimestamp: referenceCutoff,
+      identityAssertion: attestAssertion,
+      walletAuthorization: attestAuth,
+    });
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.error, 'UNPUBLISHED_DIRECTORY_VERSION');
+  });
+
+  it('MUST REJECT: out-of-bounds inputs return HTTP 400', async () => {
+    const app = createUnifiedApp();
+    const resNegativeId = await request(app).post('/attestation/attest').send({
+      consentId: 'C1',
+      workerWalletAddress: '0x123',
+      workerIdentityNullifier: '0x456',
+      expectedPassportId: -5,
+    });
+    assert.strictEqual(resNegativeId.status, 400);
+
+    const resFloatId = await request(app).post('/attestation/attest').send({
+      consentId: 'C1',
+      workerWalletAddress: '0x123',
+      workerIdentityNullifier: '0x456',
+      expectedPassportId: 1.5,
+    });
+    assert.strictEqual(resFloatId.status, 400);
+  });
 });

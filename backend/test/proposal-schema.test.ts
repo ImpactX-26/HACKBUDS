@@ -22,10 +22,10 @@ import {
   serializeCanonicalEvidence,
   computeCanonicalEvidenceDataHash,
   type CanonicalEvidencePreimage,
-} from '../src/proposal/canonical-evidence-schema.js';
+} from '../../shared/proposal/canonical-evidence-schema.js';
 
 describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
-  it('hashToFieldElement should reduce 32-byte hex hashes modulo r', () => {
+  it('hashToFieldElement should reduce 32-byte hex hashes modulo r and reject malformed digests', () => {
     const hex = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
     const field = hashToFieldElement(hex);
     assert.ok(field >= 0n);
@@ -33,6 +33,10 @@ describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
 
     // Deterministic output
     assert.strictEqual(field, hashToFieldElement(hex));
+
+    // MUST REJECT undersized / malformed digests
+    assert.throws(() => hashToFieldElement('01'), /Expected exact 32-byte SHA-256 hex digest/);
+    assert.throws(() => hashToFieldElement('not-a-hex-digest'), /Expected exact 32-byte SHA-256 hex digest/);
   });
 
   it('addressToFieldElement should convert 20-byte address to 160-bit big-endian integer', () => {
@@ -44,9 +48,13 @@ describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
     const rameshField = addressToFieldElement(rameshWallet);
     assert.ok(rameshField > 0n);
     assert.ok(rameshField < BN254_SCALAR_FIELD_MODULUS);
+
+    // MUST REJECT invalid EVM address formats
+    assert.throws(() => addressToFieldElement('0x123'), /Expected 0x-prefixed 20-byte EVM address/);
+    assert.throws(() => addressToFieldElement('not-an-address'), /Expected 0x-prefixed 20-byte EVM address/);
   });
 
-  it('providerIdToFieldElement should domain-separate provider IDs into BN254 field', () => {
+  it('providerIdToFieldElement should domain-separate provider IDs into BN254 field and reject noncanonical grammar', () => {
     const fipId = 'MOCK_APNA_BANK_FIP_01';
     const field1 = providerIdToFieldElement(fipId);
     const field2 = providerIdToFieldElement(fipId);
@@ -55,6 +63,10 @@ describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
 
     const diffField = providerIdToFieldElement('MOCK_OTHER_BANK_02');
     assert.notStrictEqual(field1, diffField, 'Distinct providers must yield distinct field elements');
+
+    // MUST REJECT leading/trailing spaces or noncanonical chars
+    assert.throws(() => providerIdToFieldElement(' MOCK_APNA_BANK_FIP_01'), /Expected canonical ASCII provider ID/);
+    assert.throws(() => providerIdToFieldElement('MOCK_BANK@01'), /Expected canonical ASCII provider ID/);
   });
 
   it('serializeCanonicalEvidence should produce bit-exact deterministic byte output', () => {
@@ -86,6 +98,40 @@ describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
     const hashB = computeCanonicalEvidenceDataHash(samplePreimage);
     assert.strictEqual(hashA.sha256Hex, hashB.sha256Hex);
     assert.strictEqual(hashA.fieldElementDecimal, hashB.fieldElementDecimal);
+  });
+
+  it('MUST REJECT: nonadjacent duplicate transaction IDs globally before aggregation', () => {
+    const preimage: CanonicalEvidencePreimage = {
+      version: 'GIGVAULT_CANONICAL_DATA_V1',
+      accountOwner: { accountId: 'ACC_01', identityNullifierHash: '0x1111' },
+      timeBounds: { fromTimestamp: 100, toTimestamp: 300 },
+      transactions: [
+        { txnId: 'DUP', timestamp: 100, amountMinor: 1000, direction: 'CREDIT', rail: 'UPI' },
+        { txnId: 'MIDDLE', timestamp: 200, amountMinor: 2000, direction: 'CREDIT', rail: 'UPI' },
+        { txnId: ' DUP ', timestamp: 300, amountMinor: 3000, direction: 'CREDIT', rail: 'UPI' },
+      ],
+    };
+
+    assert.throws(
+      () => serializeCanonicalEvidence(preimage),
+      /Duplicate transaction ID detected/
+    );
+  });
+
+  it('MUST REJECT: non-ASCII transaction IDs in canonical serializer', () => {
+    const preimage: CanonicalEvidencePreimage = {
+      version: 'GIGVAULT_CANONICAL_DATA_V1',
+      accountOwner: { accountId: 'ACC_01', identityNullifierHash: '0x1111' },
+      timeBounds: { fromTimestamp: 100, toTimestamp: 200 },
+      transactions: [
+        { txnId: '\uE000', timestamp: 100, amountMinor: 1000, direction: 'CREDIT', rail: 'UPI' },
+      ],
+    };
+
+    assert.throws(
+      () => serializeCanonicalEvidence(preimage),
+      /transaction txnId must be strict ASCII/
+    );
   });
 
   it('typed snapshot fixture must strictly satisfy all BN254 scalar range checks', () => {

@@ -114,14 +114,25 @@ export const PAYOUT_DIRECTORY_ENTRIES: PayoutSourceEntry[] = [
   },
 ];
 
+export const PUBLISHED_DIRECTORY_VERSIONS: readonly number[] = [1, 2, 3];
+
 /**
  * Reconstruct the active directory mappings for an exact historical version.
  * If an entry was introduced after targetVersion, it is excluded.
  * If an entry was deactivated before or on targetVersion, it is excluded.
+ * 
+ * Invariant: Fails closed on unpublished or unknown versions.
  */
 export function getDirectoryForVersion(version: number): DirectoryVersionInfo {
-  if (version < 1) {
-    throw new Error(`Invalid sourceDirectoryVersion: ${version}. Must be >= 1.`);
+  if (
+    typeof version !== 'number' ||
+    !Number.isInteger(version) ||
+    version < 1 ||
+    version > CURRENT_DIRECTORY_VERSION
+  ) {
+    throw new Error(
+      `UnpublishedDirectoryVersion: sourceDirectoryVersion ${version} is not in the published immutable registry (available: 1..${CURRENT_DIRECTORY_VERSION})`
+    );
   }
 
   const activeEntries = PAYOUT_DIRECTORY_ENTRIES.filter((entry) => {

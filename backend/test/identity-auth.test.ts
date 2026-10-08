@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ethers } from 'ethers';
 import { MockIdentityProvider } from '../src/identity/mock-idp.js';
-import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry } from '../src/identity/wallet-auth.js';
+import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore } from '../src/identity/wallet-auth.js';
 import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
@@ -137,8 +137,8 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
 
   it('Tripartite Gate: executes attestation when Wallet, Identity, and Bank Owner strictly link', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     // 1. Bank FIP consent for Ramesh's account
@@ -180,8 +180,8 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
 
   it('MUST REJECT: attacker tries to use Worker A identity assertion with Attacker wallet', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     const consent = consentService.createConsent({
@@ -223,8 +223,8 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
 
   it('MUST REJECT: attacker with valid identity assertion tries to use another worker bank account', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     // Consent belongs to Ramesh's bank account
@@ -266,8 +266,8 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
 
   it('MUST REJECT: missing assertion or wallet authorization in direct service method (fail-closed)', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     const consent = consentService.createConsent({
@@ -327,8 +327,8 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
     const emptyVerifier = new FIPVerifier([]);
 
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const consent = consentService.createConsent({
       accountId: PERSONAS.RAMESH.accountId,
       authorizedIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
@@ -425,6 +425,33 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
     assert.throws(
       () => registry.consume(auth2),
       /ReplayAttackDetected: nonce shared-test-nonce-12345 already consumed for wallet/
+    );
+  });
+
+  it('MUST DETECT REPLAY across multiple service replicas sharing an IReplayStore backend', async () => {
+    const sharedStore = new MemoryReplayStore();
+    const instanceA = new ReplayProtectionRegistry(sharedStore);
+    const instanceB = new ReplayProtectionRegistry(sharedStore);
+
+    const auth = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: 'CONSENT_REPLICA_1',
+        expectedPassportId: 601,
+      },
+      rameshWallet
+    );
+
+    // Consumed on instance A
+    instanceA.consume(auth);
+    assert.strictEqual(instanceA.isConsumed(auth), true);
+
+    // Instance B sees it as consumed and rejects replay
+    assert.strictEqual(instanceB.isConsumed(auth), true);
+    assert.throws(
+      () => instanceB.consume(auth),
+      /ReplayAttackDetected: worker authorization signature already consumed/
     );
   });
 });

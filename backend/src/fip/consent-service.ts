@@ -29,10 +29,16 @@ export interface CreateConsentParams {
 export class ConsentService {
   private storage: MockFIPStorage;
   private idp: MockIdentityProvider;
+  private strictAuthentication: boolean;
 
-  constructor(storage: MockFIPStorage, idp: MockIdentityProvider = defaultMockIdp) {
+  constructor(
+    storage: MockFIPStorage,
+    idp: MockIdentityProvider = defaultMockIdp,
+    strictAuthentication = true
+  ) {
     this.storage = storage;
     this.idp = idp;
+    this.strictAuthentication = strictAuthentication;
   }
 
   public getIdp(): MockIdentityProvider {
@@ -42,8 +48,12 @@ export class ConsentService {
   /**
    * Create a new consent record for an authentic bank account.
    * Enforces that caller must be authorized to consent for the account.
+   * Fail closed: requires valid identityAssertion and walletAuthorization by default.
    */
-  public createConsent(params: CreateConsentParams): ConsentRecord {
+  public createConsent(
+    params: CreateConsentParams,
+    options?: { allowInternalUnauthenticated_TEST_ONLY?: boolean }
+  ): ConsentRecord {
     const {
       accountId,
       authorizedIdentityNullifier,
@@ -58,6 +68,18 @@ export class ConsentService {
     const account = this.storage.getAccountBinding(accountId);
     if (!account) {
       throw new Error(`Account not found in Mock FIP: ${accountId}`);
+    }
+
+    const enforceAuth = options?.allowInternalUnauthenticated_TEST_ONLY
+      ? false
+      : this.strictAuthentication;
+
+    if (enforceAuth) {
+      if (!identityAssertion || !walletAuthorization) {
+        throw new Error(
+          'AuthenticationRequired: consent creation requires both verified identityAssertion and signed walletAuthorization'
+        );
+      }
     }
 
     let authNullifier = authorizedIdentityNullifier ? authorizedIdentityNullifier.toLowerCase().trim() : undefined;
@@ -112,6 +134,15 @@ export class ConsentService {
 
     this.storage.saveConsent(consent);
     return consent;
+  }
+
+  /**
+   * EXPLICIT ISOLATED INTERNAL TEST ADAPTER:
+   * Strictly for unit testing low-level FIP storage primitives without simulated worker wallets.
+   * Invariant: Must NEVER be exposed as a public HTTP or external service entry point.
+   */
+  public createConsentInternalUnauthenticated_TEST_ONLY(params: CreateConsentParams): ConsentRecord {
+    return this.createConsent(params, { allowInternalUnauthenticated_TEST_ONLY: true });
   }
 
   /**

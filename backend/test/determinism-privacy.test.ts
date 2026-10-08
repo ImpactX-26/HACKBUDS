@@ -32,9 +32,9 @@ describe('Deterministic Snapshot Regeneration & Zero-Persistence', () => {
 
   it('re-fetching under a new consent envelope produces IDENTICAL evidenceDataHash and arrays', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
     const idp = new MockIdentityProvider();
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     const ramesh = PERSONAS.RAMESH;
@@ -131,9 +131,9 @@ describe('Deterministic Snapshot Regeneration & Zero-Persistence', () => {
 
   it('changing 1 transaction changes normalized evidenceDataHash', async () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
     const idp = new MockIdentityProvider();
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(fipService, [storage.getPublicKeyPem()], idp);
 
     const wallet = ethers.Wallet.createRandom();

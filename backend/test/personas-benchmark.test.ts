@@ -28,9 +28,9 @@ describe('Seven Personas Benchmark & Profile Validation', () => {
 
   async function runAttestationForPersona(personaKey: keyof typeof PERSONAS, dirVersion = 2) {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
     const idp = new MockIdentityProvider();
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(
       fipService,
       [storage.getPublicKeyPem()],

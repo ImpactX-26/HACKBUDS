@@ -42,40 +42,141 @@ export function formatWorkerAuthMessage(auth: {
   return lines.join('\n');
 }
 
-export class ReplayProtectionRegistry {
-  private consumedNonces: Set<string> = new Set();
-  private consumedSignatures: Set<string> = new Set();
+export interface ConsumedAuthRecord {
+  signature: string;
+  nonce?: string;
+  walletAddress: string;
+  action: WorkerActionType;
+  timestamp: number;
+  consumedAt: number;
+  // Minimal request digest for idempotency check (NEVER financial evidence!)
+  requestId?: string;
+  requestFingerprint?: string;
+}
 
-  public consume(auth: WorkerWalletAuthorization): void {
+export interface ConsumeOptions {
+  requestId?: string;
+  requestFingerprint?: string;
+  allowIdempotentReplay?: boolean;
+}
+
+export interface ConsumeResult {
+  isConsumed: boolean;
+  isIdempotentReplay: boolean;
+}
+
+/**
+ * Pluggable Replay Store Interface.
+ * Can be backed by in-memory Map, Redis, or persistent database WAL across restarts/replicas.
+ * Invariant: Never stores raw financial records or plaintext evidence snapshots.
+ */
+export interface IReplayStore {
+  consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult;
+  isConsumed(auth: WorkerWalletAuthorization): boolean;
+  pruneExpired(maxAgeSeconds?: number, nowSec?: number): number;
+  reset(): void;
+}
+
+export class MemoryReplayStore implements IReplayStore {
+  private recordsBySignature = new Map<string, ConsumedAuthRecord>();
+  private recordsByNonce = new Map<string, ConsumedAuthRecord>();
+
+  public pruneExpired(maxAgeSeconds = 300, nowSec = Math.floor(Date.now() / 1000)): number {
+    let pruned = 0;
+    for (const [sig, record] of this.recordsBySignature.entries()) {
+      if (nowSec - record.consumedAt > maxAgeSeconds) {
+        this.recordsBySignature.delete(sig);
+        if (record.nonce) {
+          this.recordsByNonce.delete(`${record.walletAddress}:${record.nonce}`);
+        }
+        pruned++;
+      }
+    }
+    return pruned;
+  }
+
+  public consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult {
+    const nowSec = Math.floor(Date.now() / 1000);
+    this.pruneExpired(300, nowSec);
+
     const sigKey = auth.signature.toLowerCase();
-    if (this.consumedSignatures.has(sigKey)) {
+    const existing = this.recordsBySignature.get(sigKey);
+
+    if (existing) {
+      if (
+        options?.allowIdempotentReplay &&
+        options?.requestFingerprint &&
+        existing.requestFingerprint === options.requestFingerprint
+      ) {
+        return { isConsumed: true, isIdempotentReplay: true };
+      }
       throw new Error('ReplayAttackDetected: worker authorization signature already consumed');
     }
 
     if (auth.nonce) {
       const nonceKey = `${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`;
-      if (this.consumedNonces.has(nonceKey)) {
-        throw new Error(`ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`);
+      if (this.recordsByNonce.has(nonceKey)) {
+        throw new Error(
+          `ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`
+        );
       }
-      this.consumedNonces.add(nonceKey);
     }
 
-    this.consumedSignatures.add(sigKey);
+    const record: ConsumedAuthRecord = {
+      signature: sigKey,
+      nonce: auth.nonce,
+      walletAddress: auth.workerWalletAddress.toLowerCase(),
+      action: auth.action,
+      timestamp: auth.timestamp,
+      consumedAt: nowSec,
+      requestId: options?.requestId,
+      requestFingerprint: options?.requestFingerprint,
+    };
+
+    this.recordsBySignature.set(sigKey, record);
+    if (auth.nonce) {
+      this.recordsByNonce.set(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`, record);
+    }
+
+    return { isConsumed: false, isIdempotentReplay: false };
   }
 
   public isConsumed(auth: WorkerWalletAuthorization): boolean {
-    if (this.consumedSignatures.has(auth.signature.toLowerCase())) return true;
-    if (auth.nonce && this.consumedNonces.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
+    const sigKey = auth.signature.toLowerCase();
+    if (this.recordsBySignature.has(sigKey)) return true;
+    if (auth.nonce && this.recordsByNonce.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
     return false;
   }
 
   public reset(): void {
-    this.consumedNonces.clear();
-    this.consumedSignatures.clear();
+    this.recordsBySignature.clear();
+    this.recordsByNonce.clear();
   }
 }
 
-export const defaultReplayRegistry = new ReplayProtectionRegistry();
+export const sharedReplayStore: IReplayStore = new MemoryReplayStore();
+
+export class ReplayProtectionRegistry {
+  private store: IReplayStore;
+
+  constructor(store: IReplayStore = sharedReplayStore) {
+    this.store = store;
+  }
+
+  public consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult {
+    return this.store.consume(auth, options);
+  }
+
+  public isConsumed(auth: WorkerWalletAuthorization): boolean {
+    return this.store.isConsumed(auth);
+  }
+
+  public reset(): void {
+    this.store.reset();
+  }
+}
+
+export const defaultReplayRegistry = new ReplayProtectionRegistry(sharedReplayStore);
 
 /**
  * Sign authorization message using an ethers Wallet.

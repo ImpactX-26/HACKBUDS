@@ -55,35 +55,37 @@ export class TransactionClassifier {
     }
 
     // 2. Check personal / friend transfer patterns in remitter
-    const remitterName = (txn.remitter.name || '').toUpperCase();
-    const remitterVpa = (txn.remitter.vpa || '').toLowerCase();
+    const remitterName = String(txn.remitter?.name || '').toUpperCase().trim();
+    const remitterVpa = String(txn.remitter?.vpa || '').toLowerCase().trim();
+    const remitterAccount = String(txn.remitter?.account || '').trim();
+    const txnRail = String(txn.rail || '').trim();
 
     // 3. Match against curated payout-source directory
     for (const entry of this.activeEntries) {
       const criteria = entry.criteria;
 
-      // Rail check if specified
-      if (criteria.allowedRails && !criteria.allowedRails.includes(txn.rail)) {
+      // Rail check if specified (trim both sides)
+      if (criteria.allowedRails && !criteria.allowedRails.some((r) => r.trim() === txnRail)) {
         continue;
       }
 
-      // Check VPA match
+      // Check VPA match (trim and lowercase both sides)
       const vpaMatch =
         remitterVpa &&
         criteria.vpaList &&
-        criteria.vpaList.some((vpa) => remitterVpa === vpa.toLowerCase());
+        criteria.vpaList.some((vpa) => remitterVpa === vpa.toLowerCase().trim());
 
-      // Check Account Number match
+      // Check Account Number match (trim both sides)
       const accountMatch =
-        txn.remitter.account &&
+        remitterAccount &&
         criteria.accountNumbers &&
-        criteria.accountNumbers.includes(txn.remitter.account);
+        criteria.accountNumbers.some((acc) => remitterAccount === acc.trim());
 
-      // Check Remitter Legal Entity / Name match
+      // Check Remitter Legal Entity / Name match (trim and uppercase both sides)
       const nameMatch =
         remitterName &&
         criteria.remitterNames &&
-        criteria.remitterNames.some((name) => remitterName === name.toUpperCase());
+        criteria.remitterNames.some((name) => remitterName === name.toUpperCase().trim());
 
       // If authentic metadata matches, classify as COUNTED
       if (vpaMatch || accountMatch || nameMatch) {

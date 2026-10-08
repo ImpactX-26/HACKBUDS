@@ -79,7 +79,8 @@ export class FIPVerifier {
       );
     }
 
-    // 6. Transaction sanity checks (exact safe integer paise, currency, direction)
+    // 6. Transaction sanity checks (exact safe integer paise, currency, direction, strict ASCII, unique IDs)
+    const seenTxnIds = new Set<string>();
     for (const txn of payload.transactions) {
       if (typeof txn.amountMinor !== 'number' || !Number.isSafeInteger(txn.amountMinor) || txn.amountMinor < 0) {
         throw new Error(`Invalid transaction amountMinor: must be non-negative safe integer paise, got ${txn.amountMinor}`);
@@ -93,6 +94,17 @@ export class FIPVerifier {
       if (txn.direction !== 'CREDIT' && txn.direction !== 'DEBIT') {
         throw new Error(`Invalid transaction direction: expected CREDIT or DEBIT, got ${txn.direction}`);
       }
+      const cleanId = String(txn.txnId).trim();
+      if (!cleanId) {
+        throw new Error('Invalid transaction txnId: cannot be empty');
+      }
+      if (!/^[A-Za-z0-9_.:#/-]+$/.test(cleanId)) {
+        throw new Error(`Invalid transaction txnId: must be strict ASCII matching /^[A-Za-z0-9_.:#/-]+$/, got "${cleanId}"`);
+      }
+      if (seenTxnIds.has(cleanId)) {
+        throw new Error(`Duplicate transaction ID detected in FIP payload: ${cleanId}`);
+      }
+      seenTxnIds.add(cleanId);
     }
 
     return {

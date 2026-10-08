@@ -27,17 +27,20 @@ export class MockFIPService {
   private consentService: ConsentService;
   private fipId: string;
   private idp?: MockIdentityProvider;
+  private strictAuthentication: boolean;
 
   constructor(
     storage: MockFIPStorage,
     consentService: ConsentService,
     fipId = 'MOCK_APNA_BANK_FIP_01',
-    idp?: MockIdentityProvider
+    idp?: MockIdentityProvider,
+    strictAuthentication = true
   ) {
     this.storage = storage;
     this.consentService = consentService;
     this.fipId = fipId;
     this.idp = idp;
+    this.strictAuthentication = strictAuthentication;
   }
 
   public getIdp(): MockIdentityProvider {
@@ -62,7 +65,8 @@ export class MockFIPService {
     consentId: string,
     evidenceCutoffTimestamp?: number,
     trustedServerTimeSec?: number,
-    auth?: FIPRetrievalAuth
+    auth?: FIPRetrievalAuth,
+    options?: { allowInternalUnauthenticated_TEST_ONLY?: boolean }
   ): SignedFIPEnvelope {
     // 1. Retrieve and validate consent using trusted server time (NOT evidence cutoff!)
     const consent = this.consentService.getConsent(consentId, trustedServerTimeSec);
@@ -77,8 +81,25 @@ export class MockFIPService {
       throw new Error(`FIP consent inactive: consentId ${consentId} has status ${consent.status}`);
     }
 
-    // 2. Caller authorization gate (protect private FIP retrieval against unauthorized callers)
-    if (auth && auth.identityAssertion && auth.walletAuthorization) {
+    // 2. Caller authorization gate (FAIL CLOSED: mandatory authentication unless explicit internal test adapter)
+    const enforceAuth = options?.allowInternalUnauthenticated_TEST_ONLY
+      ? false
+      : this.strictAuthentication;
+
+    if (enforceAuth) {
+      if (!auth || !auth.identityAssertion || !auth.walletAuthorization) {
+        throw new Error(
+          'AuthenticationRequired: direct FIP retrieval requires both identityAssertion and walletAuthorization'
+        );
+      }
+    }
+
+    if (auth && (auth.identityAssertion || auth.walletAuthorization)) {
+      if (!auth.identityAssertion || !auth.walletAuthorization) {
+        throw new Error(
+          'AuthenticationRequired: partial authentication rejected; both identityAssertion and walletAuthorization required'
+        );
+      }
       const verifiedId = this.getIdp().verifyAssertion(auth.identityAssertion);
       verifyWorkerAuthorization(auth.walletAuthorization);
 
@@ -143,5 +164,24 @@ export class MockFIPService {
       signature,
       fipPublicKey: publicKeyPem,
     };
+  }
+
+  /**
+   * EXPLICIT ISOLATED INTERNAL TEST ADAPTER:
+   * Strictly for unit testing low-level envelope cryptography without wallet signatures.
+   * Invariant: Must NEVER be exposed as a public HTTP or external service entry point.
+   */
+  public fetchSignedDataInternalUnauthenticated_TEST_ONLY(
+    consentId: string,
+    evidenceCutoffTimestamp?: number,
+    trustedServerTimeSec?: number
+  ): SignedFIPEnvelope {
+    return this.fetchSignedDataByConsent(
+      consentId,
+      evidenceCutoffTimestamp,
+      trustedServerTimeSec,
+      undefined,
+      { allowInternalUnauthenticated_TEST_ONLY: true }
+    );
   }
 }

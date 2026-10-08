@@ -19,10 +19,10 @@
 import { FIPVerifier } from './fip-verifier.js';
 import { EvidenceSnapshotBuilder, type EvidenceSnapshot } from './snapshot-builder.js';
 import type { MockFIPService } from '../fip/fip-service.js';
-import { CURRENT_DIRECTORY_VERSION } from './directory/registry.js';
-import type { VerifiedIdentityAssertion, WorkerWalletAuthorization } from '../identity/types.js';
+import { CURRENT_DIRECTORY_VERSION, getDirectoryForVersion } from './directory/registry.js';
+import type { VerifiedIdentityAssertion, WorkerWalletAuthorization, WorkerActionType } from '../identity/types.js';
 import { MockIdentityProvider, defaultMockIdp } from '../identity/mock-idp.js';
-import { verifyWorkerAuthorization, ReplayProtectionRegistry } from '../identity/wallet-auth.js';
+import { verifyWorkerAuthorization, ReplayProtectionRegistry, defaultReplayRegistry } from '../identity/wallet-auth.js';
 import type { IGigPassportClient, EvidenceCommitmentData } from './passport-client.js';
 
 export interface AttestationRequest {
@@ -69,16 +69,20 @@ export class AttestationService {
   private fipVerifier: FIPVerifier;
   private idp: MockIdentityProvider;
   private replayRegistry: ReplayProtectionRegistry;
+  private expectedChainId?: number;
 
   constructor(
     fipService: MockFIPService,
     trustedFipPublicKeys?: string[],
-    idp: MockIdentityProvider = defaultMockIdp
+    idp: MockIdentityProvider = defaultMockIdp,
+    replayRegistry: ReplayProtectionRegistry = defaultReplayRegistry,
+    expectedChainId?: number
   ) {
     this.fipService = fipService;
     this.fipVerifier = new FIPVerifier(trustedFipPublicKeys);
     this.idp = idp;
-    this.replayRegistry = new ReplayProtectionRegistry();
+    this.replayRegistry = replayRegistry;
+    this.expectedChainId = expectedChainId;
 
     // Link trusted IDP with fipService so that private FIP data fetches verify caller authorization against the configured IDP
     const fipIdp = this.fipService?.getIdp?.();
@@ -109,6 +113,33 @@ export class AttestationService {
     }
     if (!walletAuthorization) {
       throw new Error('AuthenticationRequired: missing worker walletAuthorization artifact');
+    }
+
+    // 0. Enforce allowed worker actions for attestation/issuance
+    const allowedActions: WorkerActionType[] = ['MINT_PASSPORT', 'REFRESH_PASSPORT', 'REISSUE_PASSPORT'];
+    if (!allowedActions.includes(walletAuthorization.action)) {
+      throw new Error(
+        `UnauthorizedWorkerAction: action ${walletAuthorization.action} is not permitted for attestation (allowed: ${allowedActions.join(', ')})`
+      );
+    }
+
+    // Validate bounded request inputs
+    if (typeof expectedPassportId !== 'number' || !Number.isSafeInteger(expectedPassportId) || expectedPassportId < 0) {
+      throw new Error(`Invalid expectedPassportId: must be non-negative safe integer, got ${expectedPassportId}`);
+    }
+    if (cutoffTimestamp !== undefined && (typeof cutoffTimestamp !== 'number' || !Number.isSafeInteger(cutoffTimestamp) || cutoffTimestamp <= 0)) {
+      throw new Error(`Invalid cutoffTimestamp: must be positive integer Unix timestamp, got ${cutoffTimestamp}`);
+    }
+    if (sourceDirectoryVersion !== undefined) {
+      getDirectoryForVersion(sourceDirectoryVersion);
+    }
+
+    if (this.expectedChainId !== undefined && walletAuthorization.chainId !== undefined) {
+      if (walletAuthorization.chainId !== this.expectedChainId) {
+        throw new Error(
+          `ChainDomainMismatch: wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${this.expectedChainId}`
+        );
+      }
     }
 
     const cleanWallet = workerWalletAddress.toLowerCase().trim();
@@ -228,6 +259,24 @@ export class AttestationService {
     if (walletAuthorization.expectedPassportId !== passportId) {
       throw new Error('Wallet authorization passport ID mismatch');
     }
+    // Input bounds validation
+    if (typeof passportId !== 'number' || !Number.isSafeInteger(passportId) || passportId < 0) {
+      throw new Error(`Invalid passportId: must be non-negative safe integer, got ${passportId}`);
+    }
+    if (typeof evidenceUpdatedAt !== 'number' || !Number.isSafeInteger(evidenceUpdatedAt) || evidenceUpdatedAt <= 0) {
+      throw new Error(`Invalid evidenceUpdatedAt: must be positive integer Unix timestamp, got ${evidenceUpdatedAt}`);
+    }
+    if (sourceDirectoryVersion !== undefined) {
+      getDirectoryForVersion(sourceDirectoryVersion);
+    }
+    if (this.expectedChainId !== undefined && walletAuthorization.chainId !== undefined) {
+      if (walletAuthorization.chainId !== this.expectedChainId) {
+        throw new Error(
+          `ChainDomainMismatch: wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${this.expectedChainId}`
+        );
+      }
+    }
+
     verifyWorkerAuthorization(walletAuthorization, 300);
     this.replayRegistry.consume(walletAuthorization);
 
@@ -301,6 +350,12 @@ export class AttestationService {
       // 4. Construct mock evidence commitment data
       // MOCK TEST COMMITMENT ONLY: Local testing scalar digest prior to shared Poseidon freeze.
       // Invariant: MUST NOT be submitted as a production Poseidon evidence commitment.
+      if (!(passportContract as any)?.isMockClient && (passportContract as any)?.constructor?.name !== 'MockGigPassportContract') {
+        throw new Error(
+          'LiveSubmissionProhibited: mock SHA-256 test commitment minting is strictly confined to local MockGigPassportContract simulators. Live contract submission requires verified Poseidon commitment adapter.'
+        );
+      }
+
       const mockTestCommitment = BigInt(`0x${attestation.evidenceDataHash}`).toString();
       const evidenceData: EvidenceCommitmentData = {
         commitment: mockTestCommitment,

@@ -10,45 +10,26 @@
  * 3. Exact 10-slot metadata array layout for EvidenceSnapshot commitment
  */
 
+import {
+  hashToFieldElement,
+  addressToFieldElement,
+  providerIdToFieldElement,
+} from './field-mappings.js';
+
+export {
+  hashToFieldElement,
+  addressToFieldElement,
+  providerIdToFieldElement,
+};
+
+import crypto from 'node:crypto';
+import { FIELD } from './poseidon5.js';
+
 /**
  * BN254 / alt_bn128 scalar field modulus:
  * r = 21888242871839275222246405745257275088696311157297823662689037894645226208583
  */
-export const BN254_SCALAR_FIELD_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
-
-/**
- * Proposed BN254 digest-to-field reduction:
- * Treats 32-byte hex hash as big-endian unsigned integer modulo r.
- */
-export function hashToFieldElement(hexDigest: string): bigint {
-  const cleanHex = hexDigest.startsWith('0x') ? hexDigest.slice(2) : hexDigest;
-  const bigIntVal = BigInt(`0x${cleanHex}`);
-  return bigIntVal % BN254_SCALAR_FIELD_MODULUS;
-}
-
-/**
- * Proposed EVM Address to field element mapping:
- * Converts 20-byte address to 160-bit unsigned integer (big-endian).
- */
-export function addressToFieldElement(address: string): bigint {
-  const clean = address.toLowerCase().replace(/^0x/, '');
-  if (clean.length !== 40) {
-    throw new Error(`Invalid EVM address length: expected 40 hex chars, got ${clean.length}`);
-  }
-  return BigInt(`0x${clean}`);
-}
-
-/**
- * Proposed canonical provider ID mapping:
- * SHA-256("GIGVAULT_PROVIDER_ID_V1|" + canonicalProviderId) mod r
- */
-import crypto from 'node:crypto';
-
-export function providerIdToFieldElement(canonicalProviderId: string): bigint {
-  const preimage = `GIGVAULT_PROVIDER_ID_V1|${canonicalProviderId}`;
-  const digest = crypto.createHash('sha256').update(preimage, 'utf8').digest('hex');
-  return hashToFieldElement(digest);
-}
+export const BN254_SCALAR_FIELD_MODULUS = FIELD;
 
 /**
  * Proposed Canonical Preimage Structure for evidenceDataHash:
@@ -91,16 +72,24 @@ export interface CanonicalEvidencePreimage {
  * 
  * Invariants:
  * 1. String fields trimmed; VPA lowercased; nullifier lowercased.
- * 2. Deterministic sort: timestamp ascending, then bytewise ASCII txnId ascending.
- * 3. Rejects duplicate transaction IDs.
- * 4. Alphabetically sorted object keys for deterministic JSON encoding.
+ * 2. Deterministic sort: timestamp ascending, then byte-wise UTF-8 txnId ascending.
+ * 3. Enforces strict ASCII txnId grammar (/^[A-Za-z0-9_.:#/-]+$/) and global ID uniqueness.
+ * 4. Rejects duplicate transaction IDs across all timestamps before aggregation.
+ * 5. Alphabetically sorted object keys for deterministic JSON encoding.
  */
 export function serializeCanonicalEvidence(preimage: CanonicalEvidencePreimage): string {
   // 1. Normalize and clean transactions
   const cleanedTxns = preimage.transactions.map((t) => {
-    const cleanId = String(t.txnId).trim();
+    const rawId = String(t.txnId);
+    const cleanId = rawId.trim();
     if (!cleanId) {
       throw new Error('Canonical serializer error: transaction txnId cannot be empty');
+    }
+    // Strict ASCII validation: prevents Unicode surrogate inversions and encoding divergence
+    if (!/^[A-Za-z0-9_.:#/-]+$/.test(cleanId)) {
+      throw new Error(
+        `Canonical serializer error: transaction txnId must be strict ASCII matching /^[A-Za-z0-9_.:#/-]+$/, got "${cleanId}"`
+      );
     }
     const amountVal = typeof t.amountMinor === 'bigint' ? Number(t.amountMinor) : t.amountMinor;
     if (!Number.isSafeInteger(amountVal) || amountVal < 0) {
@@ -121,22 +110,24 @@ export function serializeCanonicalEvidence(preimage: CanonicalEvidencePreimage):
     };
   });
 
-  // 2. Deterministic sorting: timestamp ascending, then ASCII txnId ascending
+  // 2. Global uniqueness check: reject duplicate normalized transaction IDs across the entire dataset
+  const seenTxnIds = new Set<string>();
+  for (const t of cleanedTxns) {
+    if (seenTxnIds.has(t.txnId)) {
+      throw new Error(
+        `Duplicate transaction ID detected in authenticated dataset: ${t.txnId}`
+      );
+    }
+    seenTxnIds.add(t.txnId);
+  }
+
+  // 3. Deterministic sorting: timestamp ascending, then byte-wise UTF-8 comparison on txnId
   cleanedTxns.sort((a, b) => {
     if (a.timestamp !== b.timestamp) {
       return a.timestamp - b.timestamp;
     }
-    return a.txnId < b.txnId ? -1 : (a.txnId > b.txnId ? 1 : 0);
+    return Buffer.compare(Buffer.from(a.txnId, 'utf8'), Buffer.from(b.txnId, 'utf8'));
   });
-
-  // 3. Reject duplicate normalized transaction IDs
-  for (let i = 1; i < cleanedTxns.length; i++) {
-    if (cleanedTxns[i].txnId === cleanedTxns[i - 1].txnId) {
-      throw new Error(
-        `Duplicate transaction ID detected in authenticated dataset: ${cleanedTxns[i].txnId}`
-      );
-    }
-  }
 
   // 4. Deterministic JSON serialization with alphabetically sorted keys
   return JSON.stringify({

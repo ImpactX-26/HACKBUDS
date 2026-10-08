@@ -62,6 +62,7 @@ export interface IGigPassportClient {
  * broadcast to live networks (Polygon Amoy / Mainnet).
  */
 export class MockGigPassportContract implements IGigPassportClient {
+  public readonly isMockClient = true;
   public readonly adminAddress: string;
   public readonly attesterAddress: string;
 

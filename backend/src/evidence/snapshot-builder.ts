@@ -17,7 +17,7 @@
 import { TransactionClassifier } from './classifier.js';
 import { aggregateEvidenceCalendar, type CalendarAggregationResult } from './calendar.js';
 import { computeEvidenceDataHash } from './normalizer.js';
-import type { SignedFIPPayload } from '../fip/types.js';
+import type { SignedFIPPayload, RawTransaction } from '../fip/types.js';
 
 export interface EvidenceSnapshot {
   passportId: number;
@@ -57,17 +57,52 @@ export class EvidenceSnapshotBuilder {
       sourceDirectoryVersion = 1,
     } = params;
 
-    // 1. Classify transactions with the specified historical directory version
-    const classifier = new TransactionClassifier(sourceDirectoryVersion);
-    const classifiedTxns = classifier.classifyAll(fipPayload.transactions);
+    // 1. Validate uniqueness of transaction IDs across entire dataset before aggregation
+    // Also enforce strict ASCII format matching /^[A-Za-z0-9_.:#/-]+$/
+    const seenTxnIds = new Set<string>();
+    const normalizedTxns: RawTransaction[] = fipPayload.transactions.map((txn) => {
+      const cleanId = String(txn.txnId).trim();
+      if (!cleanId) {
+        throw new Error('Transaction ID cannot be empty');
+      }
+      if (!/^[A-Za-z0-9_.:#/-]+$/.test(cleanId)) {
+        throw new Error(
+          `Transaction ID must be strict ASCII matching /^[A-Za-z0-9_.:#/-]+$/, got "${cleanId}"`
+        );
+      }
+      if (seenTxnIds.has(cleanId)) {
+        throw new Error(
+          `Duplicate transaction ID detected in authenticated dataset: ${cleanId}`
+        );
+      }
+      seenTxnIds.add(cleanId);
 
-    // 2. Aggregate into completed UTC month and ISO week intervals
+      // Return canonical normalized fields for both classification and hashing
+      return {
+        ...txn,
+        txnId: cleanId,
+        rail: String(txn.rail).trim() as any,
+        reference: String(txn.reference || '').trim(),
+        remitter: {
+          ...txn.remitter,
+          name: String(txn.remitter?.name || '').trim(),
+          account: String(txn.remitter?.account || '').trim(),
+          vpa: String(txn.remitter?.vpa || '').toLowerCase().trim(),
+        },
+      };
+    });
+
+    // 2. Classify normalized transactions with the specified historical directory version
+    const classifier = new TransactionClassifier(sourceDirectoryVersion);
+    const classifiedTxns = classifier.classifyAll(normalizedTxns);
+
+    // 3. Aggregate into completed UTC month and ISO week intervals
     const aggregationDetails = aggregateEvidenceCalendar(classifiedTxns, evidenceUpdatedAt);
 
-    // 3. Compute stable evidenceDataHash over normalized authenticated source data
+    // 4. Compute stable evidenceDataHash over normalized authenticated source data
     const evidenceDataHash = computeEvidenceDataHash(
       fipPayload.accountOwnerBinding,
-      fipPayload.transactions,
+      normalizedTxns,
       evidenceUpdatedAt
     );
 

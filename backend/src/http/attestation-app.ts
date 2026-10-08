@@ -18,12 +18,13 @@
 
 import express, { type Request, type Response, type Express } from 'express';
 import type { MockFIPService } from '../fip/fip-service.js';
-import { CURRENT_DIRECTORY_VERSION } from '../evidence/directory/registry.js';
+import { CURRENT_DIRECTORY_VERSION, getDirectoryForVersion } from '../evidence/directory/registry.js';
 import { EvidenceSnapshotBuilder } from '../evidence/snapshot-builder.js';
 import { FIPVerifier } from '../evidence/fip-verifier.js';
 import type { SignedFIPEnvelope } from '../fip/types.js';
 import { MockIdentityProvider, defaultMockIdp } from '../identity/mock-idp.js';
-import { verifyWorkerAuthorization } from '../identity/wallet-auth.js';
+import { verifyWorkerAuthorization, ReplayProtectionRegistry, defaultReplayRegistry } from '../identity/wallet-auth.js';
+import crypto from 'node:crypto';
 
 export interface AttestationAppOptions {
   fipService?: MockFIPService;
@@ -31,6 +32,7 @@ export interface AttestationAppOptions {
   trustedFipPublicKeys?: string[];
   idp?: MockIdentityProvider;
   strictAuthentication?: boolean; // When true, requires identityAssertion and walletAuthorization
+  replayRegistry?: ReplayProtectionRegistry;
 }
 
 export function createAttestationApp(options: AttestationAppOptions): Express {
@@ -40,6 +42,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     trustedFipPublicKeys,
     idp = defaultMockIdp,
     strictAuthentication = true, // FAIL-CLOSED DEFAULT: Mandatory worker authentication
+    replayRegistry = defaultReplayRegistry,
   } = options;
 
   const app = express();
@@ -126,8 +129,18 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         res.status(400).json({ error: 'Missing or invalid workerIdentityNullifier' });
         return;
       }
-      if (expectedPassportId === undefined || typeof expectedPassportId !== 'number') {
-        res.status(400).json({ error: 'Missing or invalid expectedPassportId (must be integer)' });
+      if (expectedPassportId === undefined || typeof expectedPassportId !== 'number' || !Number.isSafeInteger(expectedPassportId) || expectedPassportId < 0) {
+        res.status(400).json({ error: 'Missing or invalid expectedPassportId (must be non-negative integer)' });
+        return;
+      }
+      if (cutoffTimestamp !== undefined && (typeof cutoffTimestamp !== 'number' || !Number.isSafeInteger(cutoffTimestamp) || cutoffTimestamp <= 0)) {
+        res.status(400).json({ error: 'Missing or invalid cutoffTimestamp (must be positive integer)' });
+        return;
+      }
+      try {
+        getDirectoryForVersion(sourceDirectoryVersion);
+      } catch (err: any) {
+        res.status(400).json({ error: 'UNPUBLISHED_DIRECTORY_VERSION', message: err.message });
         return;
       }
 
@@ -174,6 +187,14 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
       // Step B: Verify Wallet Authorization
       if (walletAuthorization) {
         try {
+          const allowedActions = ['MINT_PASSPORT', 'REFRESH_PASSPORT', 'REISSUE_PASSPORT'];
+          if (!allowedActions.includes(walletAuthorization.action)) {
+            res.status(400).json({
+              error: 'UNAUTHORIZED_WORKER_ACTION',
+              message: `Action ${walletAuthorization.action} is not permitted for attestation (allowed: ${allowedActions.join(', ')})`,
+            });
+            return;
+          }
           if (walletAuthorization.workerWalletAddress.toLowerCase() !== cleanWallet) {
             res.status(401).json({
               error: 'WALLET_AUTHORIZATION_INVALID',
@@ -197,6 +218,17 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
           }
           // Freshness against trusted server clock
           verifyWorkerAuthorization(walletAuthorization, 300);
+
+          // Atomic Replay Protection Check & Consume
+          try {
+            replayRegistry.consume(walletAuthorization);
+          } catch (replayErr: any) {
+            res.status(409).json({
+              error: 'REPLAY_ATTACK_DETECTED',
+              message: replayErr.message || 'Worker authorization signature or nonce has already been consumed',
+            });
+            return;
+          }
         } catch (err: any) {
           res.status(401).json({
             error: 'WALLET_AUTHORIZATION_INVALID',
@@ -273,8 +305,18 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
         res.status(400).json({ error: 'Missing required parameters for snapshot reconstruction' });
         return;
       }
-      if (!evidenceUpdatedAt || !sourceDirectoryVersion) {
-        res.status(400).json({ error: 'Missing historical evidenceUpdatedAt or sourceDirectoryVersion' });
+      if (typeof passportId !== 'number' || !Number.isSafeInteger(passportId) || passportId < 0) {
+        res.status(400).json({ error: 'Invalid passportId: must be non-negative integer' });
+        return;
+      }
+      if (typeof evidenceUpdatedAt !== 'number' || !Number.isSafeInteger(evidenceUpdatedAt) || evidenceUpdatedAt <= 0) {
+        res.status(400).json({ error: 'Invalid evidenceUpdatedAt: must be positive integer Unix timestamp' });
+        return;
+      }
+      try {
+        getDirectoryForVersion(sourceDirectoryVersion);
+      } catch (err: any) {
+        res.status(400).json({ error: 'UNPUBLISHED_DIRECTORY_VERSION', message: err.message });
         return;
       }
 
@@ -330,6 +372,35 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
             return;
           }
           verifyWorkerAuthorization(walletAuthorization, 300);
+
+          // Atomic Replay Protection Check & Consume
+          const requestFingerprint = crypto
+            .createHash('sha256')
+            .update(
+              JSON.stringify({
+                passportId,
+                evidenceUpdatedAt,
+                sourceDirectoryVersion,
+                consentId,
+                cleanWallet,
+                cleanNullifier,
+              }),
+              'utf8'
+            )
+            .digest('hex');
+
+          try {
+            replayRegistry.consume(walletAuthorization, {
+              requestFingerprint,
+              allowIdempotentReplay: false,
+            });
+          } catch (replayErr: any) {
+            res.status(409).json({
+              error: 'REPLAY_ATTACK_DETECTED',
+              message: replayErr.message || 'Worker authorization signature or nonce has already been consumed',
+            });
+            return;
+          }
         } catch (err: any) {
           res.status(401).json({
             error: 'WALLET_AUTHORIZATION_INVALID',

@@ -17,6 +17,8 @@ import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
 import { FIPVerifier } from '../src/evidence/fip-verifier.js';
 import { PERSONAS } from '../src/fip/personas/index.js';
+import { MockIdentityProvider } from '../src/identity/mock-idp.js';
+import { ethers } from 'ethers';
 
 describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
   it('should generate valid secp256k1 key pairs and deterministic hashes', () => {
@@ -50,8 +52,8 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
 
   it('should issue signed envelopes and verify successfully for matching worker', () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, undefined, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', undefined, false);
     const verifier = new FIPVerifier([storage.getPublicKeyPem()]);
 
     // Create consent for Ramesh
@@ -73,8 +75,8 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
 
   it('MUST FAIL: tampering any field in signed transactions invalidates signature (Arjun scenario)', () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, undefined, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', undefined, false);
     const verifier = new FIPVerifier([storage.getPublicKeyPem()]);
 
     const consent = consentService.createConsent({
@@ -118,8 +120,8 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
 
   it('MUST FAIL: account-owner identity binding mismatch rejects before evidence processing', () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, undefined, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', undefined, false);
     const verifier = new FIPVerifier([storage.getPublicKeyPem()]);
 
     // Arjun creates consent for his account
@@ -138,8 +140,8 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
 
   it('MUST FAIL: expired or revoked consents reject at fetch time', () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, undefined, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', undefined, false);
 
     // 1. Expired consent
     const consent1 = consentService.createConsent({
@@ -169,8 +171,8 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
 
   it('should enforce date range scoping on consented transactions', () => {
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, undefined, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', undefined, false);
 
     const fromTs = Date.UTC(2025, 0, 1) / 1000;
     const toTs = Date.UTC(2025, 5, 1) / 1000;
@@ -188,6 +190,36 @@ describe('Mock FIP Foundation & Cryptographic Envelopes', () => {
       assert.ok(txn.timestamp >= fromTs, 'Txn timestamp must be >= fromTimestamp');
       assert.ok(txn.timestamp <= toTs, 'Txn timestamp must be <= toTimestamp');
     }
+  });
+
+  it('MUST FAIL: direct consent and retrieval methods reject missing or partial authentication by default', async () => {
+    const storage = new MockFIPStorage();
+    // Default constructor has strictAuthentication = true
+    const consentService = new ConsentService(storage);
+    const fipService = new MockFIPService(storage, consentService);
+
+    // 1. Missing authentication in createConsent
+    assert.throws(
+      () => {
+        consentService.createConsent({
+          accountId: PERSONAS.RAMESH.accountId,
+        });
+      },
+      /AuthenticationRequired: consent creation requires both verified identityAssertion and signed walletAuthorization/
+    );
+
+    // 2. Direct fetchSignedDataByConsent rejects missing auth
+    // Create a consent using explicit test-only bypass
+    const consent = consentService.createConsentInternalUnauthenticated_TEST_ONLY({
+      accountId: PERSONAS.RAMESH.accountId,
+    });
+
+    assert.throws(
+      () => {
+        fipService.fetchSignedDataByConsent(consent.consentId);
+      },
+      /AuthenticationRequired: direct FIP retrieval requires both identityAssertion and walletAuthorization/
+    );
   });
 
   it('should verify all seven personas have realistic seeded transactions with no bank gig flags', () => {

@@ -15,7 +15,7 @@ import {
   providerIdToFieldElement,
   hashToFieldElement,
   BN254_SCALAR_FIELD_MODULUS,
-} from '../src/proposal/canonical-evidence-schema.js';
+} from '../../shared/proposal/canonical-evidence-schema.js';
 import { MockIdentityProvider } from '../src/identity/mock-idp.js';
 import { signWorkerAuthorization } from '../src/identity/wallet-auth.js';
 import { ethers } from 'ethers';

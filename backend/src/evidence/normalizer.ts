@@ -70,16 +70,16 @@ export function buildCanonicalPreimage(
       toTimestamp: cutoffTs,
     },
     transactions: eligibleTxns.map((t) => ({
-      txnId: t.txnId,
+      txnId: String(t.txnId).trim(),
       timestamp: t.timestamp,
       amountMinor: t.amountMinor,
       currency: t.currency ?? 'INR',
       direction: t.direction,
-      rail: t.rail,
-      remitterName: (t.remitter.name || '').trim(),
-      remitterAccount: (t.remitter.account || '').trim(),
-      remitterVpa: (t.remitter.vpa || '').toLowerCase().trim(),
-      reference: t.reference.trim(),
+      rail: String(t.rail).trim(),
+      remitterName: (t.remitter?.name || '').trim(),
+      remitterAccount: (t.remitter?.account || '').trim(),
+      remitterVpa: (t.remitter?.vpa || '').toLowerCase().trim(),
+      reference: String(t.reference || '').trim(),
     })),
   };
 }

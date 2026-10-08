@@ -42,8 +42,8 @@ describe('GigPassport Contract Integration & State Machine (Mock Adapter)', () =
   function createTestSetup() {
     const idp = new MockIdentityProvider();
     const storage = new MockFIPStorage();
-    const consentService = new ConsentService(storage);
-    const fipService = new MockFIPService(storage, consentService);
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
     const attestationService = new AttestationService(
       fipService,
       [storage.getPublicKeyPem()],
