@@ -1026,4 +1026,262 @@ describe('HTTP Interfaces & Attestation Pipeline Integration', () => {
     });
     assert.strictEqual(resFloatId.status, 400);
   });
+
+  it('MUST ENFORCE chain ID validation on /attestation/attest and /attestation/reconstruct when configured', async () => {
+    const expectedChainId = 80002;
+    const app = createUnifiedApp({ expectedChainId });
+    const chainWallet = ethers.Wallet.createRandom();
+
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      chainWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        durationSeconds: 3600,
+        toTimestamp: referenceCutoff,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const assertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: chainWallet.address,
+      durationSeconds: 3600,
+    });
+
+    // 1. /attestation/attest: missing chainId -> HTTP 400 CHAIN_DOMAIN_MISSING
+    const authMissingChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+      },
+      chainWallet
+    );
+
+    const resMissingChain = await request(app)
+      .post('/attestation/attest')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        expectedPassportId: 901,
+        sourceDirectoryVersion: 3,
+        cutoffTimestamp: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: authMissingChain,
+      });
+
+    assert.strictEqual(resMissingChain.status, 400);
+    assert.strictEqual(resMissingChain.body.error, 'CHAIN_DOMAIN_MISSING');
+
+    // 2. /attestation/attest: mismatched chainId -> HTTP 400 CHAIN_DOMAIN_MISMATCH
+    const authWrongChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+        chainId: 1, // Mainnet instead of 80002
+      },
+      chainWallet
+    );
+
+    const resWrongChain = await request(app)
+      .post('/attestation/attest')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        expectedPassportId: 901,
+        sourceDirectoryVersion: 3,
+        cutoffTimestamp: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: authWrongChain,
+      });
+
+    assert.strictEqual(resWrongChain.status, 400);
+    assert.strictEqual(resWrongChain.body.error, 'CHAIN_DOMAIN_MISMATCH');
+
+    // 3. /attestation/attest: matching chainId -> HTTP 200
+    const authCorrectChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+        chainId: expectedChainId,
+      },
+      chainWallet
+    );
+
+    const resCorrectChain = await request(app)
+      .post('/attestation/attest')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        expectedPassportId: 901,
+        sourceDirectoryVersion: 3,
+        cutoffTimestamp: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: authCorrectChain,
+      });
+
+    assert.strictEqual(resCorrectChain.status, 200);
+    assert.strictEqual(resCorrectChain.body.verified, true);
+
+    // 4. /attestation/reconstruct: missing chainId -> HTTP 400 CHAIN_DOMAIN_MISSING
+    const reconMissingChain = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+      },
+      chainWallet
+    );
+
+    const resReconMissing = await request(app)
+      .post('/attestation/reconstruct')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        passportId: 901,
+        sourceDirectoryVersion: 3,
+        evidenceUpdatedAt: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: reconMissingChain,
+      });
+
+    assert.strictEqual(resReconMissing.status, 400);
+    assert.strictEqual(resReconMissing.body.error, 'CHAIN_DOMAIN_MISSING');
+
+    // 5. /attestation/reconstruct: mismatched chainId -> HTTP 400 CHAIN_DOMAIN_MISMATCH
+    const reconWrongChain = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+        chainId: 137, // Polygon mainnet instead of 80002
+      },
+      chainWallet
+    );
+
+    const resReconWrong = await request(app)
+      .post('/attestation/reconstruct')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        passportId: 901,
+        sourceDirectoryVersion: 3,
+        evidenceUpdatedAt: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: reconWrongChain,
+      });
+
+    assert.strictEqual(resReconWrong.status, 400);
+    assert.strictEqual(resReconWrong.body.error, 'CHAIN_DOMAIN_MISMATCH');
+
+    // 6. /attestation/reconstruct: matching chainId -> HTTP 200
+    const reconCorrectChain = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: chainWallet.address,
+        consentId,
+        expectedPassportId: 901,
+        chainId: expectedChainId,
+      },
+      chainWallet
+    );
+
+    const resReconCorrect = await request(app)
+      .post('/attestation/reconstruct')
+      .send({
+        consentId,
+        workerWalletAddress: chainWallet.address,
+        workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+        passportId: 901,
+        sourceDirectoryVersion: 3,
+        evidenceUpdatedAt: referenceCutoff,
+        identityAssertion: assertion,
+        walletAuthorization: reconCorrectChain,
+      });
+
+    assert.strictEqual(resReconCorrect.status, 200);
+    assert.strictEqual(resReconCorrect.body.reconstructed, true);
+  });
+
+  it('MUST REJECT: duplicate submission of identical reconstruction request returns HTTP 409 REPLAY_ATTACK_DETECTED', async () => {
+    const app = createUnifiedApp();
+    const reconWallet = ethers.Wallet.createRandom();
+
+    const { assertion: consentAssertion, auth: consentAuth } = await createValidWorkerAuth(
+      PERSONAS.RAMESH,
+      reconWallet,
+      'CREATE_CONSENT',
+      PERSONAS.RAMESH.accountId
+    );
+
+    const consentRes = await request(app)
+      .post('/fip/consent')
+      .send({
+        accountId: PERSONAS.RAMESH.accountId,
+        durationSeconds: 3600,
+        toTimestamp: referenceCutoff,
+        identityAssertion: consentAssertion,
+        walletAuthorization: consentAuth,
+      });
+
+    const consentId = consentRes.body.consent.consentId;
+
+    const assertion = defaultMockIdp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: reconWallet.address,
+      durationSeconds: 3600,
+    });
+
+    const authReconstruct = await signWorkerAuthorization(
+      {
+        action: 'RECONSTRUCT_EVIDENCE',
+        workerWalletAddress: reconWallet.address,
+        consentId,
+        expectedPassportId: 902,
+      },
+      reconWallet
+    );
+
+    const payload = {
+      consentId,
+      workerWalletAddress: reconWallet.address,
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      passportId: 902,
+      sourceDirectoryVersion: 3,
+      evidenceUpdatedAt: referenceCutoff,
+      identityAssertion: assertion,
+      walletAuthorization: authReconstruct,
+    };
+
+    // First reconstruction call succeeds
+    const res1 = await request(app).post('/attestation/reconstruct').send(payload);
+    assert.strictEqual(res1.status, 200);
+    assert.strictEqual(res1.body.reconstructed, true);
+
+    // Second reconstruction call with identical authorization signature: REPLAY REJECTED with HTTP 409
+    const res2 = await request(app).post('/attestation/reconstruct').send(payload);
+    assert.strictEqual(res2.status, 409);
+    assert.strictEqual(res2.body.error, 'REPLAY_ATTACK_DETECTED');
+  });
 });

@@ -14,7 +14,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ethers } from 'ethers';
 import { MockIdentityProvider } from '../src/identity/mock-idp.js';
-import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore } from '../src/identity/wallet-auth.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { signWorkerAuthorization, verifyWorkerAuthorization, ReplayProtectionRegistry, MemoryReplayStore, FileReplayStore } from '../src/identity/wallet-auth.js';
 import { MockFIPStorage } from '../src/fip/storage.js';
 import { ConsentService } from '../src/fip/consent-service.js';
 import { MockFIPService } from '../src/fip/fip-service.js';
@@ -453,5 +456,152 @@ describe('Worker Identity & Wallet Authentication Boundary', () => {
       () => instanceB.consume(auth),
       /ReplayAttackDetected: worker authorization signature already consumed/
     );
+  });
+
+  it('MUST PERSIST REPLAY PROTECTION across process restarts using FileReplayStore', async () => {
+    const tempFile = path.join(os.tmpdir(), `gigvault-replay-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+
+    try {
+      const auth = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_RESTART_1',
+          expectedPassportId: 701,
+          nonce: 'nonce-restart-abc',
+        },
+        rameshWallet
+      );
+
+      // Process 1: consumes the authorization and terminates
+      const process1Store = new FileReplayStore(tempFile);
+      assert.strictEqual(process1Store.isConsumed(auth), false);
+      process1Store.consume(auth);
+      assert.strictEqual(process1Store.isConsumed(auth), true);
+
+      // Process 2: simulates an independent process / restarted server loading the same disk state
+      const process2Store = new FileReplayStore(tempFile);
+      assert.strictEqual(process2Store.isConsumed(auth), true, 'Restarted process must detect already-consumed signature from disk');
+
+      // Attempting to replay must fail
+      assert.throws(
+        () => process2Store.consume(auth),
+        /ReplayAttackDetected: worker authorization signature already consumed/
+      );
+
+      // Attempting to reuse nonce in fresh signature must also fail
+      const auth2 = await signWorkerAuthorization(
+        {
+          action: 'MINT_PASSPORT',
+          workerWalletAddress: rameshWallet.address,
+          consentId: 'CONSENT_RESTART_2',
+          expectedPassportId: 702,
+          nonce: 'nonce-restart-abc', // Reused nonce
+        },
+        rameshWallet
+      );
+
+      assert.throws(
+        () => process2Store.consume(auth2),
+        /ReplayAttackDetected: nonce nonce-restart-abc already consumed for wallet/
+      );
+    } finally {
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    }
+  });
+
+  it('MUST ENFORCE chain ID validation in AttestationService (reject missing and mismatched)', async () => {
+    const storage = new MockFIPStorage();
+    const consentService = new ConsentService(storage, idp, false);
+    const fipService = new MockFIPService(storage, consentService, 'MOCK_APNA_BANK_FIP_01', idp, false);
+    const expectedChain = 80002; // Polygon Amoy
+    const attestationService = new AttestationService(
+      fipService,
+      [storage.getPublicKeyPem()],
+      idp,
+      undefined,
+      expectedChain
+    );
+
+    const consent = consentService.createConsent({
+      accountId: PERSONAS.RAMESH.accountId,
+    });
+    const assertion = idp.issueAssertion({
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      workerWalletAddress: rameshWallet.address,
+    });
+
+    // 1. Missing chainId when expectedChainId is configured
+    const authNoChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: consent.consentId,
+        expectedPassportId: 801,
+      },
+      rameshWallet
+    );
+
+    assert.throws(
+      () =>
+        attestationService.attestWorkerEvidence({
+          consentId: consent.consentId,
+          workerWalletAddress: rameshWallet.address,
+          workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+          expectedPassportId: 801,
+          identityAssertion: assertion,
+          walletAuthorization: authNoChain,
+        }),
+      /ChainDomainMissing: wallet authorization must specify chainId matching expected chain 80002/
+    );
+
+    // 2. Mismatched chainId (e.g. Ethereum mainnet 1 vs Amoy 80002)
+    const authWrongChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: consent.consentId,
+        expectedPassportId: 802,
+        chainId: 1, // Wrong chain!
+      },
+      rameshWallet
+    );
+
+    assert.throws(
+      () =>
+        attestationService.attestWorkerEvidence({
+          consentId: consent.consentId,
+          workerWalletAddress: rameshWallet.address,
+          workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+          expectedPassportId: 802,
+          identityAssertion: assertion,
+          walletAuthorization: authWrongChain,
+        }),
+      /ChainDomainMismatch: wallet authorization chainId 1 does not match expected chainId 80002/
+    );
+
+    // 3. Matching chainId succeeds
+    const authValidChain = await signWorkerAuthorization(
+      {
+        action: 'MINT_PASSPORT',
+        workerWalletAddress: rameshWallet.address,
+        consentId: consent.consentId,
+        expectedPassportId: 803,
+        chainId: 80002, // Matching chain!
+      },
+      rameshWallet
+    );
+
+    const res = attestationService.attestWorkerEvidence({
+      consentId: consent.consentId,
+      workerWalletAddress: rameshWallet.address,
+      workerIdentityNullifier: PERSONAS.RAMESH.identityNullifierHash,
+      expectedPassportId: 803,
+      identityAssertion: assertion,
+      walletAuthorization: authValidChain,
+    });
+    assert.strictEqual(res.verified, true);
   });
 });

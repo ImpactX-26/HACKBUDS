@@ -134,7 +134,12 @@ export class AttestationService {
       getDirectoryForVersion(sourceDirectoryVersion);
     }
 
-    if (this.expectedChainId !== undefined && walletAuthorization.chainId !== undefined) {
+    if (this.expectedChainId !== undefined) {
+      if (walletAuthorization.chainId === undefined) {
+        throw new Error(
+          `ChainDomainMissing: wallet authorization must specify chainId matching expected chain ${this.expectedChainId}`
+        );
+      }
       if (walletAuthorization.chainId !== this.expectedChainId) {
         throw new Error(
           `ChainDomainMismatch: wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${this.expectedChainId}`
@@ -269,7 +274,12 @@ export class AttestationService {
     if (sourceDirectoryVersion !== undefined) {
       getDirectoryForVersion(sourceDirectoryVersion);
     }
-    if (this.expectedChainId !== undefined && walletAuthorization.chainId !== undefined) {
+    if (this.expectedChainId !== undefined) {
+      if (walletAuthorization.chainId === undefined) {
+        throw new Error(
+          `ChainDomainMissing: wallet authorization must specify chainId matching expected chain ${this.expectedChainId}`
+        );
+      }
       if (walletAuthorization.chainId !== this.expectedChainId) {
         throw new Error(
           `ChainDomainMismatch: wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${this.expectedChainId}`

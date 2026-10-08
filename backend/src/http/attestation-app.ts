@@ -33,6 +33,7 @@ export interface AttestationAppOptions {
   idp?: MockIdentityProvider;
   strictAuthentication?: boolean; // When true, requires identityAssertion and walletAuthorization
   replayRegistry?: ReplayProtectionRegistry;
+  expectedChainId?: number;
 }
 
 export function createAttestationApp(options: AttestationAppOptions): Express {
@@ -43,6 +44,7 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
     idp = defaultMockIdp,
     strictAuthentication = true, // FAIL-CLOSED DEFAULT: Mandatory worker authentication
     replayRegistry = defaultReplayRegistry,
+    expectedChainId,
   } = options;
 
   const app = express();
@@ -216,6 +218,22 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
             });
             return;
           }
+          if (expectedChainId !== undefined) {
+            if (walletAuthorization.chainId === undefined) {
+              res.status(400).json({
+                error: 'CHAIN_DOMAIN_MISSING',
+                message: `Wallet authorization must specify chainId matching expected chain ${expectedChainId}`,
+              });
+              return;
+            }
+            if (walletAuthorization.chainId !== expectedChainId) {
+              res.status(400).json({
+                error: 'CHAIN_DOMAIN_MISMATCH',
+                message: `Wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${expectedChainId}`,
+              });
+              return;
+            }
+          }
           // Freshness against trusted server clock
           verifyWorkerAuthorization(walletAuthorization, 300);
 
@@ -371,6 +389,22 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
             res.status(401).json({ error: 'PASSPORT_ID_MISMATCH' });
             return;
           }
+          if (expectedChainId !== undefined) {
+            if (walletAuthorization.chainId === undefined) {
+              res.status(400).json({
+                error: 'CHAIN_DOMAIN_MISSING',
+                message: `Wallet authorization must specify chainId matching expected chain ${expectedChainId}`,
+              });
+              return;
+            }
+            if (walletAuthorization.chainId !== expectedChainId) {
+              res.status(400).json({
+                error: 'CHAIN_DOMAIN_MISMATCH',
+                message: `Wallet authorization chainId ${walletAuthorization.chainId} does not match expected chainId ${expectedChainId}`,
+              });
+              return;
+            }
+          }
           verifyWorkerAuthorization(walletAuthorization, 300);
 
           // Atomic Replay Protection Check & Consume
@@ -390,6 +424,10 @@ export function createAttestationApp(options: AttestationAppOptions): Express {
             .digest('hex');
 
           try {
+            // CURRENT BEHAVIOR (ENFORCED): Strictly single-use (allowIdempotentReplay: false).
+            // Any replayed authorization signature is rejected with HTTP 409 REPLAY_ATTACK_DETECTED.
+            // PROPOSED BEHAVIOR: If joint consensus approves safe worker retry for reconstruction,
+            // allowIdempotentReplay may be enabled when requestFingerprint matches.
             replayRegistry.consume(walletAuthorization, {
               requestFingerprint,
               allowIdempotentReplay: false,

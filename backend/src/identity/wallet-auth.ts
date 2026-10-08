@@ -12,6 +12,8 @@
 
 import { ethers } from 'ethers';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { WorkerActionType, WorkerWalletAuthorization } from './types.js';
 
 export function formatWorkerAuthMessage(auth: {
@@ -154,7 +156,154 @@ export class MemoryReplayStore implements IReplayStore {
   }
 }
 
-export const sharedReplayStore: IReplayStore = new MemoryReplayStore();
+/**
+ * Zero-cost filesystem-backed replay store.
+ * Persists authorization records across actual process restarts and separate OS processes
+ * on the same host using atomic file writes.
+ * Invariant: Never stores raw financial records, account balances, or evidence snapshots.
+ */
+export class FileReplayStore implements IReplayStore {
+  private filePath: string;
+  private recordsBySignature = new Map<string, ConsumedAuthRecord>();
+  private recordsByNonce = new Map<string, ConsumedAuthRecord>();
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+    this.syncFromDisk();
+  }
+
+  public getFilePath(): string {
+    return this.filePath;
+  }
+
+  private syncFromDisk(): void {
+    try {
+      if (!fs.existsSync(this.filePath)) {
+        return;
+      }
+      const raw = fs.readFileSync(this.filePath, 'utf8');
+      if (!raw.trim()) return;
+      const records: ConsumedAuthRecord[] = JSON.parse(raw);
+      this.recordsBySignature.clear();
+      this.recordsByNonce.clear();
+      for (const rec of records) {
+        this.recordsBySignature.set(rec.signature.toLowerCase(), rec);
+        if (rec.nonce) {
+          this.recordsByNonce.set(`${rec.walletAddress.toLowerCase()}:${rec.nonce}`, rec);
+        }
+      }
+    } catch {
+      // Non-fatal if read temporarily fails; preserves existing memory cache
+    }
+  }
+
+  private persistToDisk(): void {
+    try {
+      const dir = path.dirname(this.filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const allRecords = Array.from(this.recordsBySignature.values());
+      const tmpPath = `${this.filePath}.tmp.${process.pid}.${Date.now()}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(allRecords, null, 2), 'utf8');
+      fs.renameSync(tmpPath, this.filePath);
+    } catch (err) {
+      throw new Error(
+        `FileReplayStorePersistenceError: failed to persist authorization state to disk: ${(err as Error).message}`
+      );
+    }
+  }
+
+  public pruneExpired(maxAgeSeconds = 300, nowSec = Math.floor(Date.now() / 1000)): number {
+    this.syncFromDisk();
+    let pruned = 0;
+    for (const [sig, record] of this.recordsBySignature.entries()) {
+      if (nowSec - record.consumedAt > maxAgeSeconds) {
+        this.recordsBySignature.delete(sig);
+        if (record.nonce) {
+          this.recordsByNonce.delete(`${record.walletAddress.toLowerCase()}:${record.nonce}`);
+        }
+        pruned++;
+      }
+    }
+    if (pruned > 0) {
+      this.persistToDisk();
+    }
+    return pruned;
+  }
+
+  public consume(auth: WorkerWalletAuthorization, options?: ConsumeOptions): ConsumeResult {
+    this.syncFromDisk();
+    const nowSec = Math.floor(Date.now() / 1000);
+    this.pruneExpired(300, nowSec);
+
+    const sigKey = auth.signature.toLowerCase();
+    const existing = this.recordsBySignature.get(sigKey);
+
+    if (existing) {
+      if (
+        options?.allowIdempotentReplay &&
+        options?.requestFingerprint &&
+        existing.requestFingerprint === options.requestFingerprint
+      ) {
+        return { isConsumed: true, isIdempotentReplay: true };
+      }
+      throw new Error('ReplayAttackDetected: worker authorization signature already consumed');
+    }
+
+    if (auth.nonce) {
+      const nonceKey = `${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`;
+      if (this.recordsByNonce.has(nonceKey)) {
+        throw new Error(
+          `ReplayAttackDetected: nonce ${auth.nonce} already consumed for wallet ${auth.workerWalletAddress}`
+        );
+      }
+    }
+
+    const record: ConsumedAuthRecord = {
+      signature: sigKey,
+      nonce: auth.nonce,
+      walletAddress: auth.workerWalletAddress.toLowerCase(),
+      action: auth.action,
+      timestamp: auth.timestamp,
+      consumedAt: nowSec,
+      requestId: options?.requestId,
+      requestFingerprint: options?.requestFingerprint,
+    };
+
+    this.recordsBySignature.set(sigKey, record);
+    if (auth.nonce) {
+      this.recordsByNonce.set(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`, record);
+    }
+
+    this.persistToDisk();
+    return { isConsumed: false, isIdempotentReplay: false };
+  }
+
+  public isConsumed(auth: WorkerWalletAuthorization): boolean {
+    this.syncFromDisk();
+    const sigKey = auth.signature.toLowerCase();
+    if (this.recordsBySignature.has(sigKey)) return true;
+    if (auth.nonce && this.recordsByNonce.has(`${auth.workerWalletAddress.toLowerCase()}:${auth.nonce}`)) return true;
+    return false;
+  }
+
+  public reset(): void {
+    this.recordsBySignature.clear();
+    this.recordsByNonce.clear();
+    try {
+      if (fs.existsSync(this.filePath)) {
+        fs.unlinkSync(this.filePath);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+}
+
+export const sharedReplayStore: IReplayStore = process.env.GIGVAULT_REPLAY_STORE_PATH
+  ? new FileReplayStore(process.env.GIGVAULT_REPLAY_STORE_PATH)
+  : new MemoryReplayStore();
 
 export class ReplayProtectionRegistry {
   private store: IReplayStore;

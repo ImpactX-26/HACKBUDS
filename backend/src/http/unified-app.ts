@@ -13,6 +13,7 @@ import { defaultFipStorage, MockFIPStorage } from '../fip/storage.js';
 import { ConsentService } from '../fip/consent-service.js';
 import { MockFIPService } from '../fip/fip-service.js';
 import { defaultMockIdp, type MockIdentityProvider } from '../identity/mock-idp.js';
+import type { ReplayProtectionRegistry } from '../identity/wallet-auth.js';
 
 export interface UnifiedAppOptions {
   storage?: MockFIPStorage;
@@ -20,6 +21,8 @@ export interface UnifiedAppOptions {
   fipService?: MockFIPService;
   idp?: MockIdentityProvider;
   strictAuthentication?: boolean;
+  replayRegistry?: ReplayProtectionRegistry;
+  expectedChainId?: number;
 }
 
 export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
@@ -46,6 +49,8 @@ export function createUnifiedApp(options: UnifiedAppOptions = {}): Express {
     trustedFipPublicKeys: [storage.getPublicKeyPem()],
     idp: options.idp,
     strictAuthentication: options.strictAuthentication ?? true,
+    replayRegistry: options.replayRegistry,
+    expectedChainId: options.expectedChainId,
   });
   app.use('/', attestationApp);
 

@@ -78,23 +78,63 @@ The following sections are **PROPOSED / REVIEW ONLY** and are not approved proto
   - Retain `timeBounds.toTimestamp` as the cutoff timestamp.
   - Narration and IFSC remain excluded from the hash for v1, but the schema must reserve optional slots for future directory versions that match bank IFSC or clearing codes.
 
-### 3.4 Worker Signature Domains & Replay Store Persistence
+### 3.4 Worker Signature Domains, Chain Validation & Replay Store Persistence
+
+#### Action Types & Mandatory Chain Validation
 - **Action Types:**
   - `MINT_PASSPORT`: Sequential passport minting.
   - `REFRESH_PASSPORT`: Updating evidence on an existing active passport.
   - `REISSUE_PASSPORT`: Claiming replacement passport after admin revocation.
   - `RECONSTRUCT_EVIDENCE`: Private worker-side view of decrypted snapshot.
-- **Replay Store Interface:**
-  - Minimal state stored: `{ signature, nonce, walletAddress, action, consumedAt, requestId, requestFingerprint }`.
-  - Zero financial data or transaction details stored.
-  - Idempotent retries permitted only for read-only actions (`RECONSTRUCT_EVIDENCE`) with matching `requestFingerprint`. State-changing actions (`MINT`, `REFRESH`, `REISSUE`) strictly consume signatures and fail on retry (HTTP 409).
-- **Domain Migration:** Propose migrating from `personal_sign` string formatting to EIP-712 structured data signing for production testnets.
+- **Chain Domain Enforcement:**
+  - When an `expectedChainId` is configured on the service or HTTP app, both `/attestation/attest` and direct `attestWorkerEvidence` reject missing chain IDs (`CHAIN_DOMAIN_MISSING`) or mismatched chain IDs (`CHAIN_DOMAIN_MISMATCH`).
+  - Migration from `personal_sign` text to EIP-712 structured data signing is **PROPOSED** for production testnet integration.
 
-### 3.5 Verifier Policy Hash & Public Signal Manifest
-- Circuit public signals must be explicitly manifested in order:
-  1. `evidenceCommitment`
-  2. `passportId`
-  3. `holderBinding`
-  4. `verifierPolicyHash` (binding the immutable criteria evaluated by the circuit)
-  5. Boolean evaluation flags (e.g. `incomeThresholdSatisfied`, `tenureThresholdSatisfied`)
-- A proof is valid only for the exact policy approved by the worker. Changing criteria requires a new request and signature.
+#### Replay Store Persistence Across Restarts & Separate Processes
+- **Zero-Cost Host Persistence (`FileReplayStore`):**
+  - Implemented `FileReplayStore` implementing `IReplayStore` with atomic file persistence on disk (`node:fs` write-to-temp + atomic rename).
+  - Persists minimal authorization records `{ signature, nonce, walletAddress, action, timestamp, consumedAt, requestId, requestFingerprint }` without any monetary cost or external database dependencies.
+  - Invariant: Zero financial evidence, transaction data, or snapshots are stored.
+  - Survives process restarts and synchronizes across separate operating system processes pointing to the same storage path.
+- **Unresolved Deployment Replay Protection (Reported Limitation):**
+  - For distributed multi-host or multi-region cloud production deployments, local filesystem locking is insufficient across separate container instances without shared distributed storage.
+  - Distributed cluster replay protection (e.g. Redis cluster with atomic Lua scripts or PostgreSQL transaction WAL) is explicitly reported as an **UNRESOLVED architectural decision** requiring joint operational consensus and infrastructure provisioning.
+
+#### Reconciliation of Reconstruction Retry Semantics
+- **CURRENT BEHAVIOR (ENFORCED IN CODE):**
+  - All entry points, including `/attestation/reconstruct`, strictly enforce single-use authorization with `allowIdempotentReplay: false`.
+  - Any re-submission of an identical authorization signature or nonce immediately fails with HTTP 409 `REPLAY_ATTACK_DETECTED`.
+- **PROPOSED BEHAVIOR (PENDING JOINT DECISION):**
+  - If the joint teams decide that worker-side reconstruction retries (e.g. client dropped network connection or transient prover failure without re-signing) should succeed safely, `allowIdempotentReplay: true` can be enabled conditionally for `RECONSTRUCT_EVIDENCE` only when `requestFingerprint` matches the previously consumed record.
+  - Until joint approval, Backend A maintains the strict fail-closed single-use behavior (`allowIdempotentReplay: false`).
+
+---
+
+### 3.5 Verifier Policy & Public Signal Manifest (PROPOSED — NOT APPROVED)
+
+Circuit public signals must strictly account for every locked binding established in `AGENTS.md` and reference architecture:
+1. `passport`: Stable passport identifier.
+2. `current evidence version`: Version number of evidence on the passport.
+3. `current evidence commitment`: Poseidon root of historical 36-month / 156-week financial evidence.
+4. `holder`: Worker EVM wallet control.
+5. `request`: Instance freshness and query cutoff bounds.
+6. `verifier`: Consumer contract / recipient authorization.
+7. `policy`: Immutable criteria and threshold rules.
+8. `deploymentDomain`: Chain ID and contract address scope.
+
+#### Comprehensive Binding Specification
+
+| Binding | Target Field | Exposure Mode | Technical Specification & Constraints | Verification Gate Responsibility |
+|---|---|---|---|---|
+| **Passport Identity** | `passportId` | **Direct** (Public Signal) | Exposed directly as uint256 / BN254 scalar. | Consumer contract checks `passportId` existence and active status in `GigPassport.sol`. |
+| **Current Evidence Version** | `evidenceVersion` | **Direct** (Public Signal) | Exposed directly as uint256 / BN254 scalar. | Consumer contract checks `passport.evidenceVersion == publicEvidenceVersion` to prevent stale evidence attacks. |
+| **Current Evidence Commitment** | `evidenceCommitment` | **Direct** (Public Signal) | Root of hierarchical 4-child Poseidon tree. Exposed directly as BN254 scalar. | Consumer contract checks `passport.evidenceCommitment == publicEvidenceCommitment`. |
+| **Worker Holder** | `holderBinding` | **Direct** (Public Signal) | 20-byte EVM address converted to uint160 field element via big-endian byte mapping. | Consumer contract checks `holderBinding == msg.sender` (or approved operator). |
+| **Request Instance** | `requestCommitment` | **Constrained Hash** | `Poseidon(requestIdField, cutoffTimestamp, requestNonceField)`. Constrains cutoff timestamp and request freshness in circuit. | Consumer contract verifies request was not previously consumed / replayed for this claim. |
+| **Authorized Verifier** | `verifierBinding` | **Direct / Bound** | 20-byte consumer contract address converted to uint160 field element (or bound in policy). | Consumer contract checks that proof was generated specifically for its own address (`this == verifierBinding`). |
+| **Signed Policy** | `policyHash` | **Constrained Hash** | `Poseidon(policyId, minMonthsActive, minTotalIncome, maxThreshold, ...)` or SHA-256 mod $r$ of immutable signed policy criteria JSON. | Consumer contract verifies `policyHash == expectedConsumerPolicyHash` and worker explicitly approved this exact hash. |
+| **Deployment Domain** | `domainSeparator` | **Constrained Hash** | `Poseidon(chainId, passportContractAddress, verifierContractAddress)`. Prevents cross-chain replay (e.g. Amoy vs local). | Consumer contract computes domain separator locally and compares against public signal. |
+| **Condition Decisions** | `evaluationFlags[k]` | **Direct** (Public Signals) | Per-condition boolean flags (`0` or `1`) for each policy criterion (e.g. `isIncomeSatisfied`, `isTenureSatisfied`). | Consumer contract checks that all required flags equal `1` without learning private amounts or exact dates. |
+
+*Note: All public-signal encodings and circuit templates above remain strictly PROPOSED; no protocol freeze or consumer contract deployment should proceed until joint approval.*
+
