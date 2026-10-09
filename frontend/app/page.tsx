@@ -263,9 +263,10 @@ export default function Login() {
       </div>
 
       <main className="wrap stack" style={{ gap: 28 }}>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}><Link href="/role" className="btn linkbtn">Connect my work passport</Link><Link href="/verify" className="btn alt linkbtn">Verify a passport</Link></div>
         <section className="hero stack" style={{ gap: 12 }}>
-          <h1 style={{ 
-            fontSize: "clamp(36px, 7vw, 60px)", 
+          <h1 style={{
+            fontSize: "clamp(36px, 7vw, 60px)",
             fontWeight: 800,
             background: "linear-gradient(135deg, #0f172a 0%, #0369a1 100%)",
             WebkitBackgroundClip: "text",
@@ -310,7 +311,7 @@ export default function Login() {
                   <polyline points="6 9 12 15 18 9"></polyline>
                 </svg>
               </button>
-              
+
               {showDropdown && (
                 <div style={{
                   position: "absolute",
@@ -357,15 +358,15 @@ export default function Login() {
                         {/* Header Row: Icon + Title + Selection Badge */}
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ 
-                              fontSize: "20px", 
-                              background: isSelected ? "#0284c7" : "#e0f2fe", 
+                            <span style={{
+                              fontSize: "20px",
+                              background: isSelected ? "#0284c7" : "#e0f2fe",
                               color: isSelected ? "#ffffff" : "#0284c7",
-                              width: 36, 
-                              height: 36, 
-                              borderRadius: 10, 
-                              display: "flex", 
-                              alignItems: "center", 
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              display: "flex",
+                              alignItems: "center",
                               justifyContent: "center",
                               boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
                             }}>
@@ -377,14 +378,14 @@ export default function Login() {
                           </div>
 
                           {isSelected ? (
-                            <span style={{ 
-                              background: "#059669", 
-                              color: "#ffffff", 
-                              fontSize: "11px", 
-                              fontWeight: 700, 
-                              padding: "4px 10px", 
-                              borderRadius: 999, 
-                              textTransform: "uppercase", 
+                            <span style={{
+                              background: "#059669",
+                              color: "#ffffff",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              padding: "4px 10px",
+                              borderRadius: 999,
+                              textTransform: "uppercase",
                               letterSpacing: "0.05em",
                               display: "inline-flex",
                               alignItems: "center",
@@ -429,21 +430,14 @@ export default function Login() {
           )}
         </section>
 
-        <section className="stack" style={{ gap: 12, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
-          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-            <button className="btn" onClick={logIn} disabled={!chosen}>
-              {t("loginButton")}
-            </button>
-            <Link href="/login" className="btn alt" style={{ padding: "12px 24px", fontWeight: 700 }}>
-              Worker Login / Sign Up →
-            </Link>
-          </div>
+        <section className="stack" style={{ gap: 8, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
+          <button className="btn" onClick={logIn} disabled={!chosen}>
+            Continue to my work record
+          </button>
           <p className="small muted">{chosen ? t("loginDemoNote") : t("loginPickFirst")}</p>
         </section>
 
         <p className="small" style={{ position: "relative", zIndex: 1, display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
-          <Link href="/login" style={{ fontWeight: 700, color: "#0284c7" }}>🔑 Worker Login / Sign Up (/login) →</Link>
-          <span>•</span>
           <Link href="/verify" target="_blank" rel="noopener noreferrer">{t("lenderLink")} ↗</Link>
           <span>•</span>
           <Link href="/live" style={{ fontWeight: 700, color: "#0284c7" }}>⚡ Live ZK Worker Journey (/live) →</Link>

@@ -12,7 +12,7 @@ import { mockProof } from "@/lib/prove";
 import { useSession } from "@/lib/session";
 import { ApiError, type Passport, type RolesDto } from "@/lib/types";
 import { calculateGigScore } from "../../../contracts/integration/gig-score.mjs";
-import { BrowserProvider, JsonRpcProvider, TypedDataEncoder, verifyTypedData } from "ethers";
+import { BrowserProvider, JsonRpcProvider, TypedDataEncoder, verifyTypedData, verifyMessage, hexlify, toUtf8Bytes } from "ethers";
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
@@ -35,6 +35,7 @@ export default function PassportPage() {
     fixtureHolder: string;
     passport: any;
     identityState: any;
+    evidenceSource?: any;
   } | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [consumer, setConsumer] = useState<"welfare" | "loan">("loan");
@@ -44,6 +45,7 @@ export default function PassportPage() {
 
   // Generated Artifacts & Receipts
   const [policyData, setPolicyData] = useState<any | null>(null);
+  const [policyPayload, setPolicyPayload] = useState<any | null>(null);
   const [approvedReq, setApprovedReq] = useState<any | null>(null);
   const [zkProofPackage, setZkProofPackage] = useState<any | null>(null);
   const [verifyOutcome, setVerifyOutcome] = useState<any | null>(null);
@@ -60,25 +62,9 @@ export default function PassportPage() {
       const data = await res.json();
       if (data.ok) {
         setSessionData(data);
-      } else {
-        throw new Error(data.error);
       }
     } catch {
-      setSessionData({
-        rpcUrl: "http://127.0.0.1:8545",
-        setupId: "1",
-        fixtureHolder: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-        passport: {
-          passportId: "1",
-          status: "ACTIVE",
-          holderWallet: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-          identityNullifierHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-          evidenceCommitment: "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-        },
-        identityState: {
-          principal: "0",
-        },
-      });
+      // Backend session fallback
     } finally {
       setSessionLoading(false);
     }
@@ -86,16 +72,28 @@ export default function PassportPage() {
 
   useEffect(() => {
     void loadBackendSession();
+    if (new URLSearchParams(window.location.search).get("consumer") === "welfare") setConsumer("welfare");
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setPolicyPayload(null);
+    fetch(`/api/backend/policy?consumer=${consumer}`).then(r => r.json()).then(p => {
+      if (active && p.ok) { setPolicyPayload(p); setPolicyData(p.policyRequest); }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [consumer]);
 
   useEffect(() => {
     Promise.all([api.personas(), api.roles()])
       .then(([ps, rl]) => {
-        const p = ps.find((item) => item.id === personaId) ?? ps[0];
+        const p = sessionData ? ps.find((item) => item.name === "Ramesh Kumar") ?? ps[0] : ps.find((item) => item.id === personaId) ?? ps[0];
         setPersona(p);
         setRoles(rl);
 
         if (sessionData) {
+          setLost(false);
+          setFailed(false);
           setCard({
             passportId: Number(sessionData.passport.passportId),
             owner: sessionData.passport.holderWallet,
@@ -106,19 +104,19 @@ export default function PassportPage() {
             provenMaxMissed: 0,
             provenMinIncome: 1940200,
             commitment: sessionData.passport.evidenceCommitment,
-            issuedAt: "2024-01-01T00:00:00Z",
+            issuedAt: new Date(Number(sessionData.passport.issuedAt) * 1000).toISOString(),
             revoked: sessionData.passport.status !== "ACTIVE",
             expiry: "2027-12-31T00:00:00Z",
             band: "Strong",
           });
-        } else {
+        } else if (passport?.passportId) {
           api.getPassport(passportId)
             .then((c) => setCard(c))
             .catch((e: unknown) => (e instanceof ApiError && e.code === "passport_not_found" ? setLost(true) : setFailed(true)));
         }
       })
       .catch(() => setFailed(true));
-  }, [passportId, personaId, sessionData]);
+  }, [passportId, personaId, sessionData, sessionLoading]);
 
   function log(msg: string) {
     setStepLog((prev) => [msg, ...prev]);
@@ -160,7 +158,8 @@ export default function PassportPage() {
       setZkProofPackage(null);
       setVerifyOutcome(null);
       log("Fetching verifier signed policy (without calling fixtureApproval)...");
-      const p = await fetch(`/api/backend/policy?consumer=${consumer}`).then((r) => r.json());
+      const p = policyPayload;
+      if (!p || p.policyRequest.consumer !== consumer) throw new Error("Wait for the exact signed policy to load.");
       if (!p.ok) throw new Error(p.error);
       setPolicyData(p.policyRequest);
 
@@ -177,7 +176,18 @@ export default function PassportPage() {
       if (!login.ok) throw new Error(login.error);
 
       const workerSignature = await signWorkerTypedData(p.approval.domain, p.approval.types, p.approval.value);
-      setApprovedReq({ ...p.policyRequest, workerSignature });
+      let evidenceHandle=p.policyRequest.evidenceHandle;
+      if(sessionData?.evidenceSource?.mode==="backend-a-http"){
+        const a=await fetch("/api/backend/reconstruction",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"}).then(r=>r.json());if(!a.ok)throw Error(a.error);
+        const {value,message}=a.authorization;let reconstructionSignature:string;
+        if(useLocalWallet){const provider=new JsonRpcProvider(sessionData.rpcUrl);try{reconstructionSignature=await provider.send("eth_sign",[sessionData.passport.holderWallet,hexlify(toUtf8Bytes(message))]);}finally{provider.destroy();}}
+        else{const provider=new BrowserProvider((window as any).ethereum);reconstructionSignature=await (await provider.getSigner()).signMessage(message);}
+        if(verifyMessage(message,reconstructionSignature).toLowerCase()!==sessionData.passport.holderWallet.toLowerCase())throw Error("A reconstruction signature invalid");
+        const registered=await fetch("/api/backend/reconstruction",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({walletAuthorization:{...value,signature:reconstructionSignature}})}).then(r=>r.json());if(!registered.ok)throw Error(registered.error);
+        evidenceHandle=registered.evidenceHandle;
+        log("✓ Worker authorized authenticated Backend A reconstruction.");
+      }
+      setApprovedReq({ ...p.policyRequest, workerSignature, evidenceHandle });
       log("✓ Authenticated session active. Exact EIP-712 worker approval signed!");
     } catch (err: any) {
       log(`✕ Policy/Approval error: ${err.message}`);
@@ -286,7 +296,7 @@ export default function PassportPage() {
       const res = await fetch("/api/backend/repay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passportId: "1" }),
+        body: JSON.stringify({ passportId: sessionData?.passport.passportId }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -345,7 +355,7 @@ export default function PassportPage() {
 
   return (
     <main className="wrap stack" style={{ gap: 32 }}>
-
+      {sessionData?.evidenceSource?.mode==="backend-a-http" && <div className="pill" style={{alignSelf:"flex-start"}}>✓ Authenticated Mock FIP connected · On-chain passport #{sessionData.passport.passportId}</div>}
       {lost && (
         <div className="note bad stack" style={{ gap: 8, alignItems: "flex-start" }}>
           <span>{t("passportLost")}</span>
@@ -507,12 +517,12 @@ export default function PassportPage() {
                     fontFamily: "var(--f-mono)",
                     boxShadow: "0 2px 10px rgba(0,0,0,0.2)"
                   }}>
-                    BAND {scoreBand}
+                    Gig Score {scoreResult.score} · {scoreBand} (illustrative)
                   </div>
                 </div>
                 <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: 2 }}>
                   Debt: <strong style={{ color: sessionData?.identityState?.principal !== "0" ? "#ef4444" : "#34d399" }}>
-                    {sessionData?.identityState?.principal !== "0" ? `${Number(sessionData?.identityState?.principal || 0) / 1e6} MockUSDC` : "0 MockUSDC"}
+                    {!sessionData ? "Awaiting connection" : sessionData.identityState.principal !== "0" ? `${Number(sessionData.identityState.principal) / 1e6} MockUSDC` : "0 MockUSDC"}
                   </strong>
                 </div>
               </div>
@@ -532,10 +542,10 @@ export default function PassportPage() {
               zIndex: 2
             }}>
               <div style={{ fontFamily: "var(--f-mono)", fontSize: "12px", color: "#cbd5e1" }}>
-                <span style={{ color: "#94a3b8" }}>Evidence Commitment (v1):</span> <strong style={{ color: "#38bdf8" }}>{shortHash(card.commitment, 10, 4)}</strong>
+                <span style={{ color: "#94a3b8" }}>Evidence Commitment (v{sessionData?.passport.evidenceVersion ?? 1}):</span> <strong style={{ color: "#38bdf8" }}>{shortHash(card.commitment, 10, 4)}</strong>
               </div>
               <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}>
-                <span>🛡️ GROTH16 ZK-SNARK VERIFIED</span>
+                <span>🛡️ {!sessionData ? "UI fixture · Chain connection pending" : verifyOutcome ? "ZK proof verified" : "Evidence anchored · Proof pending"}</span>
               </div>
             </div>
           </article>
@@ -571,11 +581,14 @@ export default function PassportPage() {
 
             {policyData && (
               <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 12, padding: 12, fontSize: 13 }}>
-                <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>📜 Policy Criteria (without fixtureApproval):</div>
+                <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>📜 Requirements for this benefit</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 6 }}>
                   <div><strong>Verifier ID:</strong> {shortHash(policyData.policy.verifierId, 8, 4)}</div>
-                  <div><strong>Min Income:</strong> ₹{Number(policyData.policy.minAverageIncomePaise) / 100}/mo</div>
-                  <div><strong>Min Periods:</strong> {policyData.policy.minActivePeriods} {policyData.policy.activityIsWeekly === "1" ? "wks" : "mos"}</div>
+                  {policyData.policy.incomeEnabled === "1" && <div><strong>Income:</strong> ≥ ₹{Number(policyData.policy.minAverageIncomePaise) / 100}/month over {policyData.policy.incomeWindowMonths} completed months</div>}
+                  {policyData.policy.activityEnabled === "1" && <div><strong>Activity:</strong> ≥ {policyData.policy.minActivePeriods} of {policyData.policy.activityWindow} completed {policyData.policy.activityIsWeekly === "1" ? "weeks" : "months"}</div>}
+                  {policyData.policy.historyEnabled === "1" && <div><strong>History:</strong> ≥ {policyData.policy.minHistoryMonths} months</div>}
+                  <div><strong>Evidence age:</strong> ≤ {policyData.policy.maxEvidenceAgeDays} days</div>
+                  <div><strong>Expires:</strong> {new Date(Number(policyData.policy.expiresAt) * 1000).toLocaleString()}</div>
                 </div>
               </div>
             )}
@@ -585,7 +598,7 @@ export default function PassportPage() {
               <button
                 className="btn"
                 onClick={handleGetPolicyAndApprove}
-                disabled={busyAction !== null}
+                disabled={busyAction !== null || !policyPayload || policyPayload.policyRequest.consumer !== consumer}
                 style={{ padding: "10px 16px", fontSize: 13 }}
               >
                 {busyAction === "policy" ? "⏳ Signing Approval..." : "1️⃣ Login & Sign Policy Approval"}
@@ -613,7 +626,7 @@ export default function PassportPage() {
                 <button
                   className="btn"
                   onClick={() => handleClaim(false)}
-                  disabled={!zkProofPackage || busyAction !== null}
+                  disabled={!zkProofPackage || !verifyOutcome || Object.entries(verifyOutcome.enabled ?? {}).some(([key, enabled]) => enabled && verifyOutcome[key] !== "PASS") || busyAction !== null || (consumer === "welfare" ? Boolean(sessionData?.identityState?.claimed) : sessionData?.identityState?.principal !== "0")}
                   style={{ padding: "10px 16px", fontSize: 13, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
                 >
                   {busyAction === "claim" ? "⏳ Claiming..." : "4️⃣ Claim Welfare Voucher"}
@@ -622,7 +635,7 @@ export default function PassportPage() {
                 <button
                   className="btn"
                   onClick={() => handleBorrow(false)}
-                  disabled={!zkProofPackage || busyAction !== null}
+                  disabled={!zkProofPackage || !verifyOutcome || Object.entries(verifyOutcome.enabled ?? {}).some(([key, enabled]) => enabled && verifyOutcome[key] !== "PASS") || busyAction !== null || sessionData?.identityState?.principal !== "0"}
                   style={{ padding: "10px 16px", fontSize: 13, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
                 >
                   {busyAction === "borrow" ? "⏳ Borrowing..." : "4️⃣ Borrow 100 MockUSDC"}
@@ -632,7 +645,7 @@ export default function PassportPage() {
               <button
                 className="btn alt"
                 onClick={() => handleRepay(false)}
-                disabled={sessionData?.identityState?.principal === "0" || busyAction !== null}
+                disabled={!sessionData || sessionData.identityState.principal === "0" || busyAction !== null}
                 style={{ padding: "10px 16px", fontSize: 13, borderColor: "#dc2626", color: "#dc2626" }}
               >
                 {busyAction === "repay" ? "⏳ Repaying..." : "5️⃣ Repay Loan"}
@@ -705,10 +718,11 @@ export default function PassportPage() {
               <span>🔒 Zero-Knowledge Privacy Guarantee</span>
             </div>
             <p className="small" style={{ color: "#334155", margin: 0, lineHeight: 1.5 }}>
-              {t("passportPrivacy")}
+              Your private evidence stays with the trusted prover. A verifier receives the approved policy's PASS/FAIL results and public binding signals, without your bank transactions.
             </p>
           </div>
 
+          <details className="muted"><summary>Technical details</summary><p>Local EVM and MockUSDC test funds. {sessionData?.evidenceSource?.mode==="backend-a-http" ? "Actual Backend A authenticated Mock FIP reconstruction through its pinned private local HTTP router." : "Independent Backend B synthetic fixture."} Real Groth16 verification and transactions. Synthetic identity; genuine Aadhaar and an external bank are not connected. The illustrative score does not decide eligibility.</p></details>
           {/* Control & Security Test Bar */}
           <section className="card" style={{ padding: "24px", gap: "16px", background: "rgba(255, 255, 255, 0.85)" }}>
             <h3 style={{ fontSize: "17px", color: "#0f172a", margin: 0 }}>Passport Verification & Security Actions</h3>
@@ -725,10 +739,6 @@ export default function PassportPage() {
               <Link href="/live" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px", color: "#0284c7" }}>
                 <span>⚡ Live ZK Journey (/live)</span>
               </Link>
-
-              <Link href="/forge" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px", color: "#e11d48" }}>
-                <span>🧪 {t("testLabLink")}</span>
-              </Link>
             </div>
           </section>
         </>
@@ -736,4 +746,3 @@ export default function PassportPage() {
     </main>
   );
 }
-

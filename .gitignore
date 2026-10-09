@@ -1,25 +1,19 @@
-# Node dependencies
 node_modules/
+.next/
 dist/
 build/
+.tools/
+artifacts/
+.scratch/
+output/
 *.tsbuildinfo
-
-# OS metadata
-.DS_Store
-Thumbs.db
-
-# Logs & temp
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment & secrets
-.env
-.env.local
-.env.*.local
-
-# Proving & witness files (privacy invariant)
 *.wtns
 *.zkey
-witness.json
+*.ptau
+witness*.json
+.env
+.env.*
+!.env.example
+*.log
+
+/reports/

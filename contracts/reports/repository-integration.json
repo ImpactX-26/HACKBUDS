@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-09",
+  "scope": "Integrated local A/B/frontend working tree before documentation and publication commit; hosted CI not claimed",
+  "baseMerge": "ee803ac7a553c57e6ff59fa81339374dcebe067d",
+  "backendAPin": "51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c",
+  "sourceHeads": {
+    "backendB": "abe8c5e666df2cf3d758469c9408e20b7592194a",
+    "frontend": "89b9834"
+  },
+  "commands": [
+    {
+      "directory": "backend",
+      "command": "npm run typecheck; npm test",
+      "tests": 151,
+      "suites": 25,
+      "failures": 0
+    },
+    {
+      "directory": "frontend",
+      "command": "npm run typecheck",
+      "passed": true
+    },
+    {
+      "directory": "circuits",
+      "command": "npm run build; npm run predicates:build",
+      "passed": true,
+      "compiler": "Circom 2.2.3"
+    },
+    {
+      "directory": "circuits",
+      "command": "node --test test/fr-v02.test.mjs dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js test/eligibility.test.mjs dist/circuits/test/income-activity.test.js",
+      "tests": 86,
+      "failures": 0
+    },
+    {
+      "directory": "contracts",
+      "command": "node --test test/GigPassport.test.mjs test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs test/trusted-prover-b4.test.mjs",
+      "tests": 74,
+      "failures": 0
+    },
+    {
+      "directory": "repository root",
+      "command": "node --test contracts/test/backend-a-b6.test.mjs contracts/test/backend-a-trust-reconciliation.test.mjs contracts/test/local-wallet-auth.test.mjs",
+      "tests": 25,
+      "failures": 0
+    },
+    {
+      "directory": "contracts",
+      "command": "node --test test/integration-b5.test.mjs test/session-ipc-b5.test.mjs test/worker-proof-bridge.test.mjs test/backend-a-v02-boundary.test.mjs test/gig-score.test.mjs test/authorization-boundary.test.mjs",
+      "tests": 34,
+      "failures": 0
+    }
+  ],
+  "totalTests": 370,
+  "totalFailures": 0,
+  "realAProofs": 2,
+  "publicDeployment": false,
+  "lockedReferencesChanged": false,
+  "historicalSourceReviewCaveat": "Some parity suite tests reproduce findings against frozen old review sources; newer trust checks are separate."
+}

@@ -1,0 +1,48 @@
+name: Verify GigVault
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  local-protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: |
+          npm ci --prefix circuits --no-audit --no-fund
+          npm ci --prefix contracts --no-audit --no-fund
+          npm ci --prefix backend --no-audit --no-fund
+          npm ci --prefix frontend --no-audit --no-fund
+      - name: Compile pinned Circom and TypeScript
+        run: |
+          npm --prefix circuits run setup:circom
+          npm --prefix circuits run build
+          npm --prefix circuits run predicates:build
+          npm --prefix backend run typecheck
+          npm --prefix frontend run typecheck
+      - name: Backend A regression
+        run: npm --prefix backend test
+      - name: Witness, field and historical review parity
+        working-directory: circuits
+        run: node --test test/fr-v02.test.mjs dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js test/eligibility.test.mjs dist/circuits/test/income-activity.test.js
+      - name: Passport, authorization and private prover boundaries
+        working-directory: contracts
+        run: node --test test/GigPassport.test.mjs test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs test/trusted-prover-b4.test.mjs test/local-wallet-auth.test.mjs test/backend-a-trust-reconciliation.test.mjs test/worker-proof-bridge.test.mjs test/backend-a-v02-boundary.test.mjs test/gig-score.test.mjs test/authorization-boundary.test.mjs
+      - name: Actual A reconstruction, Groth16 and local consumer transactions
+        working-directory: contracts
+        run: npm run integration:a:test

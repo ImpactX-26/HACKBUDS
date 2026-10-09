@@ -1,3 +1,4 @@
+import {existsSync} from "node:fs";
 import {pathToFileURL} from "node:url";
 import {resolve} from "node:path";
 import {getAddress} from "ethers";
@@ -10,10 +11,13 @@ const load = new Function("url", "return import(url);");
 export async function getLocalBackend(): Promise<any> {
   if (!runtime.gvBackendPromise) runtime.gvBackendPromise = (async () => {
     const contracts = resolve(process.cwd(), "../contracts");
+    const cache = resolve(contracts,"artifacts/demo-setup-cache");
+    if(existsSync(resolve(cache,"manifest.json"))) process.env.GIGVAULT_LOCAL_SETUP_CACHE=cache;
+    else if(process.env.GIGVAULT_LOCAL_SETUP_CACHE===cache) delete process.env.GIGVAULT_LOCAL_SETUP_CACHE;
     const [{startLocalBackend},{createWorkerProofBridge},{createLocalWalletAuth}] = await Promise.all([
       "process-client.mjs", "worker-proof-bridge.mjs", "local-wallet-auth.mjs"
     ].map(name => load(pathToFileURL(resolve(contracts,"integration",name)).href)));
-    const host = await startLocalBackend({port:0});
+    const host = await startLocalBackend({port:0,startupTimeoutMs:600000,onDiagnostic:(message:string)=>console.error(message)});
     const auth = createLocalWalletAuth({origin:APP_ORIGIN,domain:{name:"GigVaultLocalSession",version:"1",
       chainId:host.bundle.chainId,verifyingContract:host.bundle.contracts.passport.address}});
     const bridge = createWorkerProofBridge({authenticateWorker:(context:any)=>auth.authenticate(context?.token),
@@ -27,11 +31,12 @@ function failure(code:string): never {throw Object.assign(new Error(code),{code}
 export function requireOrigin(request:Request) {
   if(request.headers.get("origin")!==APP_ORIGIN)failure("ORIGIN_REJECTED");
 }
-export async function requireWorker(request:Request,passportId="1") {
+export async function requireWorker(request:Request,passportId?:string) {
   requireOrigin(request);
   const token=request.headers.get("cookie")?.split(";").map(v=>v.trim()).find(v=>v.startsWith(COOKIE+"="))?.slice(COOKIE.length+1);
   if(!token)failure("AUTHENTICATION_REQUIRED"); // Reject before starting a backend/prover.
   const backend=await getLocalBackend();
+  passportId ??= backend.bundle.fixture.passportId;
   const workerWallet=backend.auth.authenticate(token);
   const passport=await backend.host.call("getPassport",{passportId});
   if(getAddress(workerWallet)!==getAddress(passport.holderWallet))failure("UNAUTHORIZED_WORKER");

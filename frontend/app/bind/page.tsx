@@ -90,6 +90,7 @@ export default function Bind() {
           </p>
         )}
         <p className="small muted">{t("bindIntro")}</p>
+        <details className="small muted"><summary>About this local identity preview</summary><p>This screen uses a synthetic identity fixture. Selecting a file does not verify its authenticity. Do not upload genuine Aadhaar or other personal documents.</p></details>
       </section>
 
       {failed && <p className="note bad">{t("loadError")}</p>}

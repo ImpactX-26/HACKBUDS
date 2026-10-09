@@ -4,17 +4,17 @@
   "realProofs": 2,
   "proofMetrics": [
     {
-      "seconds": 18.72300069999999,
-      "workerMaxRssBytes": 432611328,
-      "workerRssBytes": 393052160
+      "seconds": 31.6281114,
+      "workerMaxRssBytes": 451571712,
+      "workerRssBytes": 395313152
     },
     {
-      "seconds": 18.1589461,
-      "workerMaxRssBytes": 404639744,
-      "workerRssBytes": 393297920
+      "seconds": 31.287199599999994,
+      "workerMaxRssBytes": 437723136,
+      "workerRssBytes": 393625600
     }
   ],
-  "elapsedSeconds": 156.63270730000002,
+  "elapsedSeconds": 137.82070720000002,
   "passed": true,
   "cleanupVerified": true
 }

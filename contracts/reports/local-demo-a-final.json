@@ -1,0 +1,58 @@
+{
+  "localOnly": true,
+  "source": {
+    "mode": "backend-a-http",
+    "repository": "Manas150706/HACKBUDS",
+    "commit": "51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c",
+    "transport": "private-loopback-http-to-pinned-A-router",
+    "separatelyRunningAService": false,
+    "identityTrust": "SYNTHETIC_MOCK_IDP",
+    "workerReconstructionAuthorizationRequired": true
+  },
+  "passport": {
+    "passportId": "2",
+    "status": "ACTIVE",
+    "holderWallet": "0xBb2741e079Aa0D3e96f8A4FDedCd7373Adb13D5B",
+    "identityNullifierHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "evidenceCommitment": "7897153121687183782039332796654227983347387306369887316904642307571138368870",
+    "evidenceVersion": "1",
+    "evidenceUpdatedAt": "1791504181",
+    "issuedAt": "1791504741",
+    "schemaVersion": "2",
+    "evidenceProvider": "0x4d4f434b5f41504e415f42414e4b5f4649505f30310000000000000000000000",
+    "supersedes": "0",
+    "sourceDirectoryVersion": "3"
+  },
+  "identityState": {
+    "identity": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "claimed": true,
+    "principal": "0"
+  },
+  "aReconstructions": 2,
+  "browserProofSeconds": [
+    22.82,
+    21.1
+  ],
+  "transactions": [
+    {
+      "hash": "0xc6742917b128687fb59434869c51b6759f6a7a43bdc94adced4e49ea3061125c",
+      "status": "0x1"
+    },
+    {
+      "hash": "0x2a55201de3b918801ce26345a8e7c713ffa9e4e30b393f164878daf47b5b78b3",
+      "status": "0x1"
+    },
+    {
+      "hash": "0xd623bef42415e16685920d69d0b9d8cee402106e443c4bbe88a8a62fc6eb958a",
+      "status": "0x1"
+    },
+    {
+      "hash": "0x69f253fda8eb0cadf8c4d6c6c8cbf87385c4782d79acba8ccd7f3f0b7d45d861",
+      "status": "0x1"
+    }
+  ],
+  "regressionTests": 20,
+  "httpBoundaryChecks": 12,
+  "typecheck": "pass",
+  "published": false
+}

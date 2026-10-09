@@ -1,0 +1,55 @@
+{
+  "localOnly": true,
+  "syntheticEvidence": true,
+  "liveBackendAHttp": false,
+  "frontend": "http://localhost:3000/passport",
+  "proofs": [
+    {
+      "consumer": "loan",
+      "signals": 29,
+      "seconds": 24.05
+    },
+    {
+      "consumer": "welfare",
+      "signals": 29,
+      "seconds": 21.46
+    }
+  ],
+  "transactions": [
+    {
+      "hash": "0x1373b85e41d34998cf6a595aaae0171166c59d0e3e49ffe62b40cbcdee33ed0b",
+      "status": "0x1",
+      "block": "0xa"
+    },
+    {
+      "hash": "0x243d00537ef9b6935ab051a65ac4c482ab6c142b42c8e34dae5f7a6da6c91373",
+      "status": "0x1",
+      "block": "0xb"
+    },
+    {
+      "hash": "0x718b54a20ab0b054b65f7f2c68e0e049e99fc8e7bf2f7da5413f121c6a5af8ad",
+      "status": "0x1",
+      "block": "0xc"
+    },
+    {
+      "hash": "0x2f6b2a2a9cc60ae63f38420eeaef1add043cab86ffbd15c495d14cd42001a75b",
+      "status": "0x1",
+      "block": "0xd"
+    }
+  ],
+  "identityState": {
+    "identity": "0x5522b522679e5285c6a5ec22eff5e141aaa94f3f5d4d3a3e2a335e70ef355b7b",
+    "claimed": true,
+    "principal": "0"
+  },
+  "setupId": "078aecf920f5b0deae701f92c1119f3e14f7bef8421d352773dcd23d6340201a",
+  "checks": {
+    "httpAuthentication": 10,
+    "walletAuthentication": 5,
+    "typecheck": "pass",
+    "routes": 5,
+    "cacheParity": "pass",
+    "tamperedCache": "rejected"
+  },
+  "published": false
+}

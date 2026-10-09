@@ -1,3 +1,5 @@
+> Historical planning/review document retained for traceability. For the current integrated implementation, setup and verified results, start with [the repository README](README.md). Locked references remain authoritative; later explicit approvals are recorded in docs/ROADMAP.md.
+
 # GigVault — AI Development Handoff (review version)
 
 **Purpose:** Let four teammates use one GitHub repository and different AI coding assistants without drifting from the agreed GigVault architecture.

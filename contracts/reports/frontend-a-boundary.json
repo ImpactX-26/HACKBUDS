@@ -1,0 +1,20 @@
+{
+  "passed": 12,
+  "checks": [
+    "prove rejects unauthenticated copied holder",
+    "claim rejects unauthenticated copied holder",
+    "borrow rejects unauthenticated copied holder",
+    "repay rejects unauthenticated copied holder",
+    "onboarding rejects unauthenticated copied holder",
+    "reconstruction rejects unauthenticated copied holder",
+    "wrong origin rejected",
+    "fabricated wallet signature rejected",
+    "real A-passport holder login",
+    "login replay rejected",
+    "forged policy approval rejected",
+    "rejection precedes A private evidence read"
+  ],
+  "localOnly": true,
+  "commit": "51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c",
+  "passportId": "2"
+}

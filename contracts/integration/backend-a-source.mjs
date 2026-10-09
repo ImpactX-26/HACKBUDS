@@ -10,12 +10,13 @@ const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 function git(args){const result=spawnSync('git',args,{cwd:repo,windowsHide:true,maxBuffer:8*1024*1024});
   if(result.status!==0)throw Error('Pinned Backend A source unavailable; run npm run integration:a:prepare.');return result.stdout;}
 /** Fetches PUBLIC Git objects only. No A checkout, branch modification or vendored pipeline. */
-export function prepareBackendASource({fetch=false,commit=backendACommit}={}) {
+export function prepareBackendASource({fetch=false,commit=backendACommit,http=false}={}) {
   if(!/^[0-9a-f]{40}$/.test(commit))throw Error('Expected exact Backend A commit SHA');
   const root=resolve(repo,'contracts/artifacts/backend-a-b6',commit);
   const backendACommit=commit; // Explicit historical test pins use a separate verified cache.
   if(fetch)git(['fetch','--no-tags','https://github.com/Manas150706/HACKBUDS.git',backendACommit]);
-  const listing=git(['ls-tree','-r',backendACommit,'backend/src/fip','backend/src/evidence','backend/src/identity','shared/proposal']).toString();
+  const listing=git(['ls-tree','-r',backendACommit,'backend/src/fip','backend/src/evidence','backend/src/identity','shared/proposal',
+    ...(http?['backend/src/http/attestation-app.ts']:[])]).toString();
   const files=[];
   for(const line of listing.trim().split('\n')){
     const match=/^100644 blob ([0-9a-f]{40})\t(.+\.ts)$/.exec(line);if(!match)continue;
@@ -32,7 +33,8 @@ export function prepareBackendASource({fetch=false,commit=backendACommit}={}) {
   }
   mkdirSync(resolve(root,'node_modules'),{recursive:true});
   // Dependency resolution only; upstream source and financial/crypto logic are unchanged.
-  for(const [name,target]of [['ethers',resolve(repo,'contracts/node_modules/ethers')],['circomlibjs',resolve(repo,'circuits/node_modules/circomlibjs')],['snarkjs',resolve(repo,'circuits/node_modules/snarkjs')]]){
+  for(const [name,target]of [['ethers',resolve(repo,'contracts/node_modules/ethers')],['circomlibjs',resolve(repo,'circuits/node_modules/circomlibjs')],['snarkjs',resolve(repo,'circuits/node_modules/snarkjs')],
+    ...(http?[['express',resolve(repo,'contracts/node_modules/express')]]:[])]){
     const link=resolve(root,'node_modules',name);if(!existsSync(link))symlinkSync(target,link,'junction');
   }
   writeFileSync(resolve(root,'package.json'),'{"type":"module"}\n');

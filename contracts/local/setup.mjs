@@ -1,4 +1,4 @@
-import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,rmSync,existsSync,copyFileSync} from 'node:fs';
 import {resolve,sep} from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomBytes,createHash} from 'node:crypto';
@@ -21,6 +21,25 @@ export async function prepareLocalSetup() {
     rmSync(directory,{recursive:true,force:true});
   };
   try {
+    // Local demo only: reuse a previously verified key, checking every artifact.
+    const cache=process.env.GIGVAULT_LOCAL_SETUP_CACHE;
+    if(cache) {
+      const manifest=JSON.parse(readFileSync(resolve(cache,'manifest.json'),'utf8'));
+      if(manifest.localOnly!==true || manifest.commitmentProfile!=='gv-poseidon-hash-only-0.2.0')throw Error('Unsupported local setup cache');
+      const setup={directory,cleanup,r1cs:resolve(circuitsRoot,'build/eligibility-v02.r1cs'),
+        wasm:resolve(circuitsRoot,'build/eligibility-v02_js/eligibility-v02.wasm'),
+        calculator:resolve(circuitsRoot,'build/eligibility-v02_js/witness_calculator.js')};
+      for(const [key,name] of Object.entries({zkey:'final.zkey',vk:'vk.json',verifier:'Groth16Verifier.sol'})) {
+        const source=resolve(cache,name);
+        if(digest(source)!==manifest.setupDigests[key])throw Error('Local setup cache digest mismatch: '+key);
+        setup[key]=resolve(directory,name);copyFileSync(source,setup[key]);
+      }
+      setup.digests=Object.fromEntries(['r1cs','wasm','calculator','zkey','vk','verifier'].map(k=>[k,digest(setup[k])]));
+      for(const key of Object.keys(setup.digests))if(setup.digests[key]!==manifest.setupDigests[key])throw Error('Local setup cache incompatible: '+key);
+      setup.id=createHash('sha256').update(JSON.stringify(setup.digests)).digest('hex');
+      if(setup.id!==manifest.setupId)throw Error('Local setup cache identity mismatch');
+      return setup;
+    }
     const ptau=process.env.GIGVAULT_TEST_PTAU??resolve(circuitsRoot,'.tools/powersOfTau28_hez_final_17.ptau');
     if(!existsSync(ptau)) {
       // Free public transcript; no paid services, credentials or worker data.
