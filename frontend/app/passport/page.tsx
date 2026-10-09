@@ -11,6 +11,8 @@ import { bandOf, gigScore } from "@/lib/score";
 import { mockProof } from "@/lib/prove";
 import { useSession } from "@/lib/session";
 import { ApiError, type Passport, type RolesDto } from "@/lib/types";
+import { calculateGigScore } from "../../../contracts/integration/gig-score.mjs";
+import { BrowserProvider, JsonRpcProvider, TypedDataEncoder, verifyTypedData } from "ethers";
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
@@ -26,22 +28,262 @@ export default function PassportPage() {
   const [failed, setFailed] = useState(false);
   const [second, setSecond] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const passportId = passport?.passportId ?? null;
+  // Live Backend Session State
+  const [sessionData, setSessionData] = useState<{
+    rpcUrl: string;
+    setupId: string;
+    fixtureHolder: string;
+    passport: any;
+    identityState: any;
+  } | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [consumer, setConsumer] = useState<"welfare" | "loan">("loan");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [stepLog, setStepLog] = useState<string[]>([]);
+  const [useLocalWallet, setUseLocalWallet] = useState(true);
+
+  // Generated Artifacts & Receipts
+  const [policyData, setPolicyData] = useState<any | null>(null);
+  const [approvedReq, setApprovedReq] = useState<any | null>(null);
+  const [zkProofPackage, setZkProofPackage] = useState<any | null>(null);
+  const [verifyOutcome, setVerifyOutcome] = useState<any | null>(null);
+  const [claimReceipt, setClaimReceipt] = useState<any | null>(null);
+  const [borrowReceipt, setBorrowReceipt] = useState<any | null>(null);
+  const [repayReceipt, setRepayReceipt] = useState<any | null>(null);
+
+  const passportId = passport?.passportId ?? 1;
+
+  async function loadBackendSession() {
+    try {
+      setSessionLoading(true);
+      const res = await fetch("/api/backend/session");
+      const data = await res.json();
+      if (data.ok) {
+        setSessionData(data);
+      }
+    } catch {
+      // Backend session fallback
+    } finally {
+      setSessionLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (ready && !passport) router.replace("/proof");
-  }, [ready, passport, router]);
+    void loadBackendSession();
+  }, []);
 
   useEffect(() => {
-    if (passportId === null) return;
-    Promise.all([api.getPassport(passportId), api.personas(), api.roles()])
-      .then(([c, ps, rl]) => {
-        setCard(c);
-        setPersona(ps.find((p) => p.id === personaId) ?? null);
+    Promise.all([api.personas(), api.roles()])
+      .then(([ps, rl]) => {
+        const p = ps.find((item) => item.id === personaId) ?? ps[0];
+        setPersona(p);
         setRoles(rl);
+
+        if (sessionData) {
+          setCard({
+            passportId: Number(sessionData.passport.passportId),
+            owner: sessionData.passport.holderWallet,
+            holderWallet: sessionData.passport.holderWallet,
+            role: "food",
+            provenMinTenure: 34,
+            provenMinPeriods: 150,
+            provenMaxMissed: 0,
+            provenMinIncome: 1940200,
+            commitment: sessionData.passport.evidenceCommitment,
+            issuedAt: "2024-01-01T00:00:00Z",
+            revoked: sessionData.passport.status !== "ACTIVE",
+            expiry: "2027-12-31T00:00:00Z",
+            band: "Strong",
+          });
+        } else {
+          api.getPassport(passportId)
+            .then((c) => setCard(c))
+            .catch((e: unknown) => (e instanceof ApiError && e.code === "passport_not_found" ? setLost(true) : setFailed(true)));
+        }
       })
-      .catch((e: unknown) => (e instanceof ApiError && e.code === "passport_not_found" ? setLost(true) : setFailed(true)));
-  }, [passportId, personaId]);
+      .catch(() => setFailed(true));
+  }, [passportId, personaId, sessionData]);
+
+  function log(msg: string) {
+    setStepLog((prev) => [msg, ...prev]);
+  }
+
+  async function signWorkerTypedData(domain: any, types: any, value: any) {
+    if (!sessionData) throw new Error("Backend session loading...");
+    const holder = sessionData.passport.holderWallet;
+    let signature: string;
+    if (useLocalWallet) {
+      const provider = new JsonRpcProvider(sessionData.rpcUrl);
+      try {
+        signature = await provider.send("eth_signTypedData_v4", [holder, TypedDataEncoder.getPayload(domain, types, value)]);
+      } finally {
+        provider.destroy();
+      }
+    } else {
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) throw new Error("Connect EVM wallet or use local synthetic dev wallet");
+      const provider = new BrowserProvider(ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      if ((await signer.getAddress()).toLowerCase() !== holder.toLowerCase()) {
+        throw new Error("Connected wallet is not this passport's holder");
+      }
+      signature = await signer.signTypedData(domain, types, value);
+    }
+    if (verifyTypedData(domain, types, value, signature).toLowerCase() !== holder.toLowerCase()) {
+      throw new Error("Worker signature verification failed");
+    }
+    return signature;
+  }
+
+  async function handleGetPolicyAndApprove() {
+    if (busyAction) return;
+    try {
+      setBusyAction("policy");
+      setApprovedReq(null);
+      setZkProofPackage(null);
+      setVerifyOutcome(null);
+      log("Fetching verifier signed policy (without calling fixtureApproval)...");
+      const p = await fetch(`/api/backend/policy?consumer=${consumer}`).then((r) => r.json());
+      if (!p.ok) throw new Error(p.error);
+      setPolicyData(p.policyRequest);
+
+      log("Requesting login challenge for session authentication...");
+      const c = await fetch("/api/backend/auth/challenge", { method: "POST" }).then((r) => r.json());
+      if (!c.ok) throw new Error(c.error);
+
+      const loginSignature = await signWorkerTypedData(c.challenge.domain, c.challenge.types, c.challenge.value);
+      const login = await fetch("/api/backend/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nonce: c.challenge.value.nonce, signature: loginSignature }),
+      }).then((r) => r.json());
+      if (!login.ok) throw new Error(login.error);
+
+      const workerSignature = await signWorkerTypedData(p.approval.domain, p.approval.types, p.approval.value);
+      setApprovedReq({ ...p.policyRequest, workerSignature });
+      log("✓ Authenticated session active. Exact EIP-712 worker approval signed!");
+    } catch (err: any) {
+      log(`✕ Policy/Approval error: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleGenerateProof(invalidAuth = false) {
+    if (!approvedReq || busyAction) return;
+    try {
+      setBusyAction("proving");
+      const start = performance.now();
+      log("Requesting 29-signal ZK Groth16 proof via authenticated bridge...");
+      const res = await fetch("/api/backend/prove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+
+      const elapsed = ((performance.now() - start) / 1000).toFixed(2);
+      setZkProofPackage(data.proof);
+      log(`✓ 29-signal ZK Groth16 proof generated in ${elapsed}s! (${data.proof.publicSignals.length} signals)`);
+    } catch (err: any) {
+      log(`✕ Proving output: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleVerifySolidity() {
+    if (!approvedReq || !zkProofPackage || busyAction) return;
+    try {
+      setBusyAction("verify");
+      log("Verifying proof on-chain against EligibilityGateV02 & Groth16Verifier...");
+      const res = await fetch("/api/backend/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setVerifyOutcome(data.verification);
+      log(`✓ Solidity verification: ${JSON.stringify(data.verification)}`);
+    } catch (err: any) {
+      log(`✕ Verification error: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleClaim(invalidAuth = false) {
+    if (!approvedReq || !zkProofPackage || busyAction) return;
+    try {
+      setBusyAction("claim");
+      log("Executing Welfare Claim transaction...");
+      const res = await fetch("/api/backend/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setClaimReceipt(data.tx);
+      log(`✓ Welfare Claim Mined! Tx Hash: ${data.tx.hash}`);
+      await loadBackendSession();
+    } catch (err: any) {
+      log(`✕ Claim error: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleBorrow(invalidAuth = false) {
+    if (!approvedReq || !zkProofPackage || busyAction) return;
+    try {
+      setBusyAction("borrow");
+      log("Executing 100 MockUSDC Borrow transaction...");
+      const res = await fetch("/api/backend/borrow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setBorrowReceipt(data.tx);
+      log(`✓ 100 MockUSDC Borrow Mined! Tx Hash: ${data.tx.hash}`);
+      await loadBackendSession();
+    } catch (err: any) {
+      log(`✕ Borrow error: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleRepay(invalidAuth = false) {
+    if (busyAction) return;
+    try {
+      setBusyAction("repay");
+      log("Executing Repayment flow (Approve + Repay)...");
+      const res = await fetch("/api/backend/repay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passportId: "1" }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error);
+      setRepayReceipt(data);
+      log(`✓ Approve Tx Hash: ${data.approveTx.hash}`);
+      log(`✓ Repay Loan Mined! Tx Hash: ${data.repayTx.hash}`);
+      await loadBackendSession();
+    } catch (err: any) {
+      log(`✕ Repayment error: ${err.message}`);
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   async function trySecond() {
     if (!card || !bind) return;
@@ -76,10 +318,44 @@ export default function PassportPage() {
     }
   }
 
-  if (!passport) return null;
+  // Frontend-only illustrative Gig Score calculation (separated from backend eligibility)
+  const scoreResult = calculateGigScore({
+    tenureMonths: 34,
+    weeksPaid: 150,
+    missedWeeks: 0,
+    averageMonthlyIncomePaise: "1940200",
+  });
+  const scoreBand = scoreResult.score >= 80 ? "Strong" : scoreResult.score >= 60 ? "Good" : scoreResult.score >= 40 ? "Fair" : "Weak";
 
   return (
     <main className="wrap stack" style={{ gap: 32 }}>
+      {/* Synthetic Evidence Notice Banner */}
+      <section style={{
+        background: "rgba(254, 243, 199, 0.95)",
+        border: "2px solid #f59e0b",
+        borderRadius: "16px",
+        padding: "16px 20px",
+        color: "#b45309",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 12
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>⚠️</span>
+          <div>
+            <strong style={{ fontSize: 15, display: "block" }}>Backend B Synthetic Evidence Fixture Active</strong>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>
+              Connected to Live Backend Session (Passport #1, Holder: {sessionData ? shortHash(sessionData.passport.holderWallet, 8, 4) : "0x7099...79C8"}). Not connected to live Backend A HTTP service yet.
+            </span>
+          </div>
+        </div>
+        <span style={{ background: "#d97706", color: "#ffffff", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 800 }}>
+          SYNTHETIC B FIXTURE
+        </span>
+      </section>
+
       {lost && (
         <div className="note bad stack" style={{ gap: 8, alignItems: "flex-start" }}>
           <span>{t("passportLost")}</span>
@@ -124,7 +400,6 @@ export default function PassportPage() {
 
             {/* Top Bar: Security Chip + Official Header + Status Badge */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px", zIndex: 2 }}>
-              {/* Golden Smart Card EMV Chip */}
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <div style={{
                   width: 46,
@@ -139,7 +414,6 @@ export default function PassportPage() {
                   alignItems: "center",
                   justifyContent: "center"
                 }}>
-                  {/* Micro Chip Grid Lines */}
                   <div style={{ width: "100%", height: 1, background: "#78350f" }} />
                   <div style={{ position: "absolute", width: 1, height: "100%", background: "#78350f" }} />
                 </div>
@@ -148,12 +422,11 @@ export default function PassportPage() {
                     Official Web3 Credential
                   </div>
                   <div style={{ fontSize: "14px", fontWeight: 800, color: "#f8fafc", letterSpacing: "0.05em", fontFamily: "var(--f-mono)" }}>
-                    GIGVAULT PASSPORT
+                    GIGVAULT PASSPORT #{card.passportId}
                   </div>
                 </div>
               </div>
 
-              {/* Status Pill */}
               <span style={{
                 background: card.revoked ? "rgba(220, 38, 38, 0.9)" : "rgba(16, 185, 129, 0.9)",
                 color: "#ffffff",
@@ -187,7 +460,6 @@ export default function PassportPage() {
               zIndex: 2
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                {/* Avatar Initials Badge */}
                 <div style={{
                   width: 52,
                   height: 52,
@@ -210,15 +482,14 @@ export default function PassportPage() {
                     {t("passportHolder")}
                   </span>
                   <div style={{ fontSize: "22px", fontWeight: 800, color: "#ffffff", letterSpacing: "0.02em" }}>
-                    {persona ? (lang === "kn" ? persona.nameKn : persona.name) : ""}
+                    {persona ? (lang === "kn" ? persona.nameKn : persona.name) : "Ramesh Kumar"}
                   </div>
                   <div style={{ fontSize: "12px", color: "#38bdf8", fontFamily: "var(--f-mono)", fontWeight: 700 }}>
-                    Passport #{card.passportId}
+                    Holder: {shortHash(card.holderWallet || card.owner, 10, 4)}
                   </div>
                 </div>
               </div>
 
-              {/* Role, Gig Score Band & Expiry */}
               <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
                 <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#94a3b8", fontWeight: 700 }}>
                   {t("passportWork")}
@@ -233,10 +504,10 @@ export default function PassportPage() {
                     fontSize: "14px",
                     fontWeight: 700
                   }}>
-                    {roles ? roles[card.role].label : card.role}
+                    {roles ? roles[card.role]?.label || card.role : "Food Delivery Rider 🛵"}
                   </div>
                   <div style={{
-                    background: card.band === "Strong" ? "#059669" : card.band === "Good" ? "#0284c7" : card.band === "Fair" ? "#d97706" : "#dc2626",
+                    background: scoreBand === "Strong" ? "#059669" : scoreBand === "Good" ? "#0284c7" : "#d97706",
                     color: "#ffffff",
                     padding: "6px 16px",
                     borderRadius: "8px",
@@ -246,63 +517,16 @@ export default function PassportPage() {
                     fontFamily: "var(--f-mono)",
                     boxShadow: "0 2px 10px rgba(0,0,0,0.2)"
                   }}>
-                    BAND {card.band ?? bandOf(gigScore({ tenure: card.provenMinTenure, periods: card.provenMinPeriods, missed: card.provenMaxMissed, income: card.provenMinIncome }))}
+                    BAND {scoreBand}
                   </div>
                 </div>
                 <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: 2 }}>
-                  Valid: <strong>{fmtDate(card.expiry)}</strong>
+                  Debt: <strong style={{ color: sessionData?.identityState?.principal !== "0" ? "#ef4444" : "#34d399" }}>
+                    {sessionData?.identityState?.principal !== "0" ? `${Number(sessionData?.identityState?.principal || 0) / 1e6} MockUSDC` : "0 MockUSDC"}
+                  </strong>
                 </div>
               </div>
             </div>
-
-            {/* Privacy-Preserving ZK Certificate Attributes (No exact figures) */}
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-              gap: "12px",
-              zIndex: 2
-            }}>
-              <div style={{ background: "rgba(15, 23, 42, 0.5)", border: "1px solid rgba(56, 189, 248, 0.25)", padding: "14px 16px", borderRadius: "14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#94a3b8", fontWeight: 700 }}>Proven Rating</span>
-                  <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>✓ ZK PROVEN</span>
-                </div>
-                <div style={{ fontSize: "16px", fontWeight: 800, color: "#38bdf8", marginTop: "6px" }}>
-                  Band {card.band ?? "Strong"} Stability
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(15, 23, 42, 0.5)", border: "1px solid rgba(56, 189, 248, 0.25)", padding: "14px 16px", borderRadius: "14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#94a3b8", fontWeight: 700 }}>Aadhaar Binding</span>
-                  <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>✓ VERIFIED</span>
-                </div>
-                <div style={{ fontSize: "16px", fontWeight: 800, color: "#38bdf8", marginTop: "6px" }}>
-                  Nullifier Protected
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(15, 23, 42, 0.5)", border: "1px solid rgba(56, 189, 248, 0.25)", padding: "14px 16px", borderRadius: "14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#94a3b8", fontWeight: 700 }}>Data Privacy</span>
-                  <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>✓ ENCRYPTED</span>
-                </div>
-                <div style={{ fontSize: "16px", fontWeight: 800, color: "#38bdf8", marginTop: "6px" }}>
-                  Zero Figures Exposed
-                </div>
-              </div>
-
-              <div style={{ background: "rgba(16, 185, 129, 0.15)", border: "1px solid rgba(52, 211, 153, 0.4)", padding: "14px 16px", borderRadius: "14px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#6ee7b7", fontWeight: 700 }}>Issuer Audit</span>
-                  <span style={{ fontSize: "10px", color: "#34d399", fontWeight: 700 }}>✓ STAMPED</span>
-                </div>
-                <div style={{ fontSize: "16px", fontWeight: 800, color: "#34d399", marginTop: "6px" }}>
-                  Bank Sign Off
-                </div>
-              </div>
-            </div>
-
 
             {/* Cryptographic Hashes & Laser Security Stamp */}
             <div style={{
@@ -318,14 +542,164 @@ export default function PassportPage() {
               zIndex: 2
             }}>
               <div style={{ fontFamily: "var(--f-mono)", fontSize: "12px", color: "#cbd5e1" }}>
-                <span style={{ color: "#94a3b8" }}>Commitment:</span> <strong style={{ color: "#38bdf8" }}>{shortHash(card.commitment, 10, 4)}</strong>
-                {card.txHash ? <span style={{ marginLeft: 8 }}><span style={{ color: "#94a3b8" }}>• Tx:</span> <strong style={{ color: "#38bdf8" }}>{shortHash(card.txHash, 8, 4)}</strong></span> : ""}
+                <span style={{ color: "#94a3b8" }}>Evidence Commitment (v1):</span> <strong style={{ color: "#38bdf8" }}>{shortHash(card.commitment, 10, 4)}</strong>
               </div>
               <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}>
                 <span>🛡️ GROTH16 ZK-SNARK VERIFIED</span>
               </div>
             </div>
           </article>
+
+          {/* Interactive Worker Actions Card */}
+          <section className="card" style={{ padding: 24, background: "rgba(255, 255, 255, 0.95)", border: "1px solid rgba(255, 255, 255, 0.8)", borderRadius: 20, boxShadow: "0 10px 30px rgba(2, 132, 199, 0.06)", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⚡</span> Authenticated Worker Actions (Passport #{card.passportId})
+              </h2>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className={`btn ${consumer === "loan" ? "" : "alt"}`}
+                  onClick={() => { setConsumer("loan"); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
+                  style={{ padding: "6px 14px", fontSize: 13 }}
+                >
+                  💳 Loan (100 MockUSDC)
+                </button>
+                <button
+                  className={`btn ${consumer === "welfare" ? "" : "alt"}`}
+                  onClick={() => { setConsumer("welfare"); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
+                  style={{ padding: "6px 14px", fontSize: 13 }}
+                >
+                  🛡️ Welfare Claim
+                </button>
+              </div>
+            </div>
+
+            <label style={{ fontSize: 13 }}>
+              <input type="checkbox" checked={useLocalWallet} onChange={(e) => setUseLocalWallet(e.target.checked)} />
+              {" "}Use local synthetic EVM development wallet (unlocked loopback account).
+            </label>
+
+            {policyData && (
+              <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 12, padding: 12, fontSize: 13 }}>
+                <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>📜 Policy Criteria (without fixtureApproval):</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 6 }}>
+                  <div><strong>Verifier ID:</strong> {shortHash(policyData.policy.verifierId, 8, 4)}</div>
+                  <div><strong>Min Income:</strong> ₹{Number(policyData.policy.minAverageIncomePaise) / 100}/mo</div>
+                  <div><strong>Min Periods:</strong> {policyData.policy.minActivePeriods} {policyData.policy.activityIsWeekly === "1" ? "wks" : "mos"}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Workflow Action Buttons */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              <button
+                className="btn"
+                onClick={handleGetPolicyAndApprove}
+                disabled={busyAction !== null}
+                style={{ padding: "10px 16px", fontSize: 13 }}
+              >
+                {busyAction === "policy" ? "⏳ Signing Approval..." : "1️⃣ Login & Sign Policy Approval"}
+              </button>
+
+              <button
+                className="btn"
+                onClick={() => handleGenerateProof(false)}
+                disabled={!approvedReq || busyAction !== null}
+                style={{ padding: "10px 16px", fontSize: 13, background: approvedReq ? "linear-gradient(135deg, #0284c7, #2563eb)" : undefined }}
+              >
+                {busyAction === "proving" ? "⚡ Proving..." : "2️⃣ Generate ZK Proof"}
+              </button>
+
+              <button
+                className="btn"
+                onClick={handleVerifySolidity}
+                disabled={!zkProofPackage || busyAction !== null}
+                style={{ padding: "10px 16px", fontSize: 13, background: zkProofPackage ? "linear-gradient(135deg, #059669, #10b981)" : undefined }}
+              >
+                {busyAction === "verify" ? "🔍 Verifying..." : "3️⃣ Verify on Solidity"}
+              </button>
+
+              {consumer === "welfare" ? (
+                <button
+                  className="btn"
+                  onClick={() => handleClaim(false)}
+                  disabled={!zkProofPackage || busyAction !== null}
+                  style={{ padding: "10px 16px", fontSize: 13, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
+                >
+                  {busyAction === "claim" ? "⏳ Claiming..." : "4️⃣ Claim Welfare Voucher"}
+                </button>
+              ) : (
+                <button
+                  className="btn"
+                  onClick={() => handleBorrow(false)}
+                  disabled={!zkProofPackage || busyAction !== null}
+                  style={{ padding: "10px 16px", fontSize: 13, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
+                >
+                  {busyAction === "borrow" ? "⏳ Borrowing..." : "4️⃣ Borrow 100 MockUSDC"}
+                </button>
+              )}
+
+              <button
+                className="btn alt"
+                onClick={() => handleRepay(false)}
+                disabled={sessionData?.identityState?.principal === "0" || busyAction !== null}
+                style={{ padding: "10px 16px", fontSize: 13, borderColor: "#dc2626", color: "#dc2626" }}
+              >
+                {busyAction === "repay" ? "⏳ Repaying..." : "5️⃣ Repay Loan"}
+              </button>
+            </div>
+
+            {/* Security Test Controls */}
+            <div style={{ padding: 12, background: "rgba(239, 68, 68, 0.06)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 10, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontWeight: 700, color: "#b91c1c", fontSize: 12 }}>🛡️ Rejection Tests:</span>
+              <button
+                className="btn alt"
+                onClick={() => handleGenerateProof(true)}
+                disabled={!approvedReq || busyAction !== null}
+                style={{ fontSize: 12, padding: "4px 10px", color: "#b91c1c", borderColor: "#ef4444" }}
+              >
+                🧪 Unauthenticated Proving
+              </button>
+              <button
+                className="btn alt"
+                onClick={() => handleBorrow(true)}
+                disabled={!zkProofPackage || busyAction !== null}
+                style={{ fontSize: 12, padding: "4px 10px", color: "#b91c1c", borderColor: "#ef4444" }}
+              >
+                🧪 Unauthenticated Borrow
+              </button>
+            </div>
+
+            {/* Receipts & Execution Logs */}
+            {verifyOutcome && (
+              <div style={{ background: "rgba(209, 250, 229, 0.9)", border: "1px solid rgba(5, 150, 105, 0.4)", borderRadius: 10, padding: 12, color: "#047857", fontSize: 12 }}>
+                <strong>✓ Solidity Verification:</strong> {JSON.stringify(verifyOutcome)}
+              </div>
+            )}
+            {claimReceipt && (
+              <div style={{ background: "rgba(254, 243, 199, 0.9)", border: "1px solid rgba(217, 119, 6, 0.4)", borderRadius: 10, padding: 12, color: "#b45309", fontSize: 12 }}>
+                <strong>✓ Welfare Claim Tx:</strong> <code className="mono">{claimReceipt.hash}</code>
+              </div>
+            )}
+            {borrowReceipt && (
+              <div style={{ background: "rgba(254, 243, 199, 0.9)", border: "1px solid rgba(217, 119, 6, 0.4)", borderRadius: 10, padding: 12, color: "#b45309", fontSize: 12 }}>
+                <strong>✓ Borrow 100 MockUSDC Tx:</strong> <code className="mono">{borrowReceipt.hash}</code>
+              </div>
+            )}
+            {repayReceipt && (
+              <div style={{ background: "rgba(209, 250, 229, 0.9)", border: "1px solid rgba(5, 150, 105, 0.4)", borderRadius: 10, padding: 12, color: "#047857", fontSize: 12 }}>
+                <strong>✓ Loan Repaid!</strong> Approve: <code className="mono">{repayReceipt.approveTx.hash}</code> | Repay: <code className="mono">{repayReceipt.repayTx.hash}</code>
+              </div>
+            )}
+
+            {stepLog.length > 0 && (
+              <div style={{ background: "#0f172a", borderRadius: 10, padding: 12, color: "#38bdf8", fontSize: 11, fontFamily: "monospace", maxHeight: 140, overflowY: "auto" }}>
+                {stepLog.map((line, idx) => (
+                  <div key={idx}>{line}</div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Privacy Note Card */}
           <div style={{
@@ -358,59 +732,14 @@ export default function PassportPage() {
                 <span style={{ fontSize: "12px", opacity: 0.7 }}>↗</span>
               </Link>
 
-              <Link href="/forge" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <span>🧪 {t("testLabLink")}</span>
+              <Link href="/live" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px", color: "#0284c7" }}>
+                <span>⚡ Live ZK Journey (/live)</span>
               </Link>
-
-              <button className="btn alt" onClick={trySecond} style={{ padding: "12px 20px", fontSize: "14px" }}>
-                🔒 {t("secondTry")}
-              </button>
-
-              <button
-                className="btn alt"
-                onClick={revoke}
-                disabled={card.revoked}
-                style={{
-                  padding: "12px 20px",
-                  fontSize: "14px",
-                  color: card.revoked ? "#94a3b8" : "#dc2626",
-                  borderColor: card.revoked ? "rgba(203, 213, 225, 0.8)" : "rgba(220, 38, 38, 0.3)"
-                }}
-              >
-                🚫 {t("revokePassport")}
-              </button>
             </div>
-
-            {card.revoked && (
-              <div style={{
-                background: "rgba(254, 226, 226, 0.9)",
-                border: "1px solid rgba(220, 38, 38, 0.3)",
-                padding: "12px 16px",
-                borderRadius: "10px",
-                color: "#b91c1c",
-                fontSize: "14px",
-                fontWeight: 600
-              }}>
-                {t("revokedNote")}
-              </div>
-            )}
-
-            {second && (
-              <div style={{
-                background: second.ok ? "rgba(254, 243, 199, 0.9)" : "rgba(254, 226, 226, 0.9)",
-                border: `1px solid ${second.ok ? "rgba(217, 119, 6, 0.3)" : "rgba(220, 38, 38, 0.3)"}`,
-                padding: "12px 16px",
-                borderRadius: "10px",
-                color: second.ok ? "#b45309" : "#b91c1c",
-                fontSize: "14px",
-                fontWeight: 600
-              }}>
-                {second.text}
-              </div>
-            )}
           </section>
         </>
       )}
     </main>
   );
 }
+

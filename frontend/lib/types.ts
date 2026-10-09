@@ -114,6 +114,7 @@ export interface IssueResponse {
 export interface Passport {
   passportId: number;
   owner: string;
+  holderWallet?: string;
   commitment: string;
   role: RoleKey;
   band: ScoreBand;
