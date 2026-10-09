@@ -429,14 +429,34 @@ export default function Login() {
           )}
         </section>
 
-        <section className="stack" style={{ gap: 8, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
-          <button className="btn" onClick={logIn} disabled={!chosen}>
-            {t("loginButton")}
-          </button>
+        <section className="stack" style={{ gap: 12, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center", width: "100%" }}>
+            <button className="btn" onClick={logIn} disabled={!chosen} style={{ padding: "14px 28px", fontSize: "16px" }}>
+              {t("loginButton")}
+            </button>
+            <Link
+              href="/login"
+              className="btn"
+              style={{
+                padding: "14px 28px",
+                fontSize: "16px",
+                background: "linear-gradient(135deg, #0284c7 0%, #2563eb 100%)",
+                color: "#ffffff",
+                boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px"
+              }}
+            >
+              📱 Mobile OTP Login / Sign Up →
+            </Link>
+          </div>
           <p className="small muted">{chosen ? t("loginDemoNote") : t("loginPickFirst")}</p>
         </section>
 
         <p className="small" style={{ position: "relative", zIndex: 1, display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
+          <Link href="/login" style={{ fontWeight: 700, color: "#0284c7" }}>📱 Mobile OTP Login (/login) →</Link>
+          <span>•</span>
           <Link href="/verify" target="_blank" rel="noopener noreferrer">{t("lenderLink")} ↗</Link>
           <span>•</span>
           <Link href="/live" style={{ fontWeight: 700, color: "#0284c7" }}>⚡ Live ZK Worker Journey (/live) →</Link>
