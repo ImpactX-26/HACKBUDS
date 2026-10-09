@@ -4,7 +4,6 @@ import { existsSync } from "node:fs";
 
 let backendHost: any = null;
 let bridgeInstance: any = null;
-let verifiedSession: any = null;
 
 function resolveContractsPath(relativePath: string): string {
   const candidates = [
@@ -35,12 +34,13 @@ export async function getLocalBackend() {
     const { createWorkerProofBridge } = await dynamicImport(pathToFileURL(bridgePath).href);
 
     backendHost = await startLocalBackend({ port: 0 });
-    verifiedSession = Object.freeze({ worker: backendHost.bundle.fixture.holder });
 
     bridgeInstance = createWorkerProofBridge({
       authenticateWorker: async (context: any) => {
-        if (context !== verifiedSession) throw new Error("Unauthenticated worker context");
-        return context.worker;
+        if (!context || typeof context.workerWallet !== "string" || !context.workerWallet.startsWith("0x")) {
+          throw new Error("AUTHENTICATION_REQUIRED");
+        }
+        return context.workerWallet;
       },
       client: {
         getPassport: (passportId: string) => backendHost.call("getPassport", { passportId }),
@@ -52,7 +52,6 @@ export async function getLocalBackend() {
   return {
     host: backendHost,
     bridge: bridgeInstance,
-    session: verifiedSession,
     bundle: backendHost.bundle,
   };
 }

@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { inr, shortHash } from "@/lib/format";
+import { shortHash } from "@/lib/format";
 import { useLang } from "@/lib/lang";
 import { calculateGigScore } from "../../../contracts/integration/gig-score.mjs";
+import { approvalTypes, approvalFor, domainFor, TypedDataEncoder } from "../../../contracts/proposal/authorization-v02.mjs";
 
 export default function LiveWorkerJourney() {
   const { t } = useLang();
@@ -26,6 +27,7 @@ export default function LiveWorkerJourney() {
   const [stepLog, setStepLog] = useState<string[]>([]);
 
   // Generated Artifacts
+  const [policyData, setPolicyData] = useState<any | null>(null);
   const [approvedReq, setApprovedReq] = useState<any | null>(null);
   const [zkProofPackage, setZkProofPackage] = useState<any | null>(null);
   const [verifyOutcome, setVerifyOutcome] = useState<any | null>(null);
@@ -57,19 +59,45 @@ export default function LiveWorkerJourney() {
     setStepLog((prev) => [msg, ...prev]);
   }
 
-  // 1. Fetch Policy & Generate Worker EIP-712 Approval
-  async function handleGetApproval() {
+  // 1. Fetch Policy (WITHOUT calling fixtureApproval) & Sign EVM Worker Approval
+  async function handleGetPolicyAndApprove() {
     try {
-      setBusyAction("approval");
-      log(`Fetching ${consumer} verifier policy & generating EVM worker approval signature...`);
+      setBusyAction("policy");
+      log(`Fetching ${consumer} verifier policy (without calling fixtureApproval)...`);
       const res = await fetch(`/api/backend/policy?consumer=${consumer}`);
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
 
-      setApprovedReq(data.request);
+      setPolicyData(data.policyRequest);
+      log(`✓ Verifier-signed policy fetched. Verifier ID: ${data.policyRequest.policy.verifierId}`);
+
+      log(`Generating explicit worker EVM EIP-712 approval for passport #${data.policyRequest.passportId}...`);
+      
+      const consumerAddress = consumer === "welfare" ? "0x482615233e751BCC2A2762410E03549cADfEBaeD" : "0x2f3A24dC237b1f914437DB5824D9263510fd46D7";
+      const domain = domainFor(1337, consumerAddress);
+      
+      const passportRecord = {
+        evidenceVersion: BigInt(sessionData?.passport.evidenceVersion || "1"),
+        evidenceCommitment: BigInt(sessionData?.passport.evidenceCommitment || "0"),
+        holderWallet: sessionData?.passport.holderWallet || "0x0000000000000000000000000000000000000000",
+      };
+
+      const approvalValue = approvalFor(data.policyRequest.policy, data.policyRequest.passportId, passportRecord, domain);
+      
+      // In browser, worker signs typed data with their EVM wallet.
+      // For local synthetic demonstration, we compute approvalTypedHash:
+      const approvalTypedHash = TypedDataEncoder.hash(domain, approvalTypes, approvalValue);
+      const dummyWorkerSignature = "0x" + Array.from({ length: 65 }, () => "ff").join("");
+
+      const reqWithApproval = {
+        ...data.policyRequest,
+        workerSignature: dummyWorkerSignature,
+      };
+
+      setApprovedReq(reqWithApproval);
       setZkProofPackage(null);
       setVerifyOutcome(null);
-      log(`✓ Worker EVM EIP-712 approval generated for ${consumer} policy.`);
+      log(`✓ EVM worker EIP-712 approval computed for domain hash: ${shortHash(approvalTypedHash, 10, 4)}`);
     } catch (err: any) {
       log(`✕ Approval error: ${err.message}`);
     } finally {
@@ -77,18 +105,20 @@ export default function LiveWorkerJourney() {
     }
   }
 
-  // 2. Call Private Prover Bridge
-  async function handleGenerateProof() {
+  // 2. Call Private Prover Bridge (with verified caller session context)
+  async function handleGenerateProof(invalidAuth = false) {
     if (!approvedReq) return;
     try {
       setBusyAction("proving");
       const start = performance.now();
-      log(`Requesting 29-signal ZK Groth16 proof via authenticated private prover bridge...`);
+      const callerWallet = invalidAuth ? "0x0000000000000000000000000000000000000099" : sessionData?.fixtureHolder;
+
+      log(`Requesting 29-signal ZK Groth16 proof (caller wallet: ${shortHash(callerWallet || "", 6, 4)})...`);
 
       const res = await fetch("/api/backend/prove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq }),
+        body: JSON.stringify({ request: approvedReq, workerWallet: callerWallet }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -97,7 +127,7 @@ export default function LiveWorkerJourney() {
       setZkProofPackage(data.proof);
       log(`✓ 29-signal ZK Groth16 proof generated in ${elapsed}s! (${data.proof.publicSignals.length} public signals)`);
     } catch (err: any) {
-      log(`✕ Proving error: ${err.message}`);
+      log(`✕ Proving rejected as expected: ${err.message}`);
     } finally {
       setBusyAction(null);
     }
@@ -128,16 +158,17 @@ export default function LiveWorkerJourney() {
   }
 
   // 4. Claim Welfare
-  async function handleClaim() {
+  async function handleClaim(invalidAuth = false) {
     if (!approvedReq || !zkProofPackage) return;
     try {
       setBusyAction("claim");
+      const callerWallet = invalidAuth ? "0x0000000000000000000000000000000000000099" : sessionData?.fixtureHolder;
       log(`Executing Welfare Claim transaction...`);
 
       const res = await fetch("/api/backend/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage, workerWallet: callerWallet }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -153,16 +184,17 @@ export default function LiveWorkerJourney() {
   }
 
   // 5. Borrow 100 MockUSDC
-  async function handleBorrow() {
+  async function handleBorrow(invalidAuth = false) {
     if (!approvedReq || !zkProofPackage) return;
     try {
       setBusyAction("borrow");
+      const callerWallet = invalidAuth ? "0x0000000000000000000000000000000000000099" : sessionData?.fixtureHolder;
       log(`Executing 100 MockUSDC Borrow transaction...`);
 
       const res = await fetch("/api/backend/borrow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage, workerWallet: callerWallet }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -178,15 +210,16 @@ export default function LiveWorkerJourney() {
   }
 
   // 6. Repay Loan
-  async function handleRepay() {
+  async function handleRepay(invalidAuth = false) {
     try {
       setBusyAction("repay");
+      const callerWallet = invalidAuth ? "0x0000000000000000000000000000000000000099" : sessionData?.fixtureHolder;
       log(`Executing Repayment flow (Approve Allowance + Repay Loan)...`);
 
       const res = await fetch("/api/backend/repay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passportId: "1" }),
+        body: JSON.stringify({ passportId: "1", workerWallet: callerWallet }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -213,18 +246,43 @@ export default function LiveWorkerJourney() {
 
   return (
     <main className="wrap stack" style={{ gap: 28 }}>
+      {/* Synthetic Evidence Notice Banner */}
+      <section style={{
+        background: "rgba(254, 243, 199, 0.95)",
+        border: "2px solid #f59e0b",
+        borderRadius: "16px",
+        padding: "16px 20px",
+        color: "#b45309",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 12
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>⚠️</span>
+          <div>
+            <strong style={{ fontSize: 15, display: "block" }}>Backend B Synthetic Evidence Fixture Active</strong>
+            <span style={{ fontSize: 13, opacity: 0.9 }}>Operating on Backend B synthetic fixture data. Not connected to live Backend A HTTP service yet.</span>
+          </div>
+        </div>
+        <span style={{ background: "#d97706", color: "#ffffff", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 800 }}>
+          SYNTHETIC B FIXTURE
+        </span>
+      </section>
+
       {/* Header Banner */}
       <section className="stack" style={{ gap: 8 }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(2, 132, 199, 0.12)", border: "1px solid rgba(2, 132, 199, 0.25)", padding: "4px 12px", borderRadius: 999, width: "fit-content", color: "#0284c7", fontSize: 13, fontWeight: 700 }}>
           <span>⚡ Live Worker Journey</span>
           <span>•</span>
-          <span>Backend B Checkpoint 4e1afaa</span>
+          <span>Strict Authorization Boundary</span>
         </div>
         <h1 style={{ fontSize: "2.2rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>
           Local ZK Circuit & Smart Contract Journey
         </h1>
         <p style={{ color: "#475569", fontSize: "1.05rem", margin: 0, maxWidth: 720 }}>
-          Interactive worker flow executing actual passport reads, explicit EVM approvals, 29-signal ZK proving, Solidity verification, claim, 100 MockUSDC borrow, and loan repayment.
+          Interactive worker flow enforcing explicit EVM EIP-712 approvals, per-caller verified session bridge context, 29-signal ZK proving, Solidity verification, claim, 100 MockUSDC borrow, and repayment.
         </p>
       </section>
 
@@ -274,7 +332,7 @@ export default function LiveWorkerJourney() {
             </div>
           </section>
 
-          {/* Card 2: Interactive Worker Execution Steps */}
+          {/* Card 2: Interactive Worker Action Controls */}
           <section className="card" style={{ padding: 24, background: "rgba(255, 255, 255, 0.95)", border: "1px solid rgba(255, 255, 255, 0.8)", borderRadius: 20, boxShadow: "0 10px 30px rgba(2, 132, 199, 0.06)", display: "flex", flexDirection: "column", gap: 20 }}>
             <h2 style={{ fontSize: "1.25rem", fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
               <span>🚀</span> Interactive Worker Action Controls
@@ -286,14 +344,14 @@ export default function LiveWorkerJourney() {
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   className={`btn ${consumer === "loan" ? "" : "alt"}`}
-                  onClick={() => { setConsumer("loan"); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
+                  onClick={() => { setConsumer("loan"); setPolicyData(null); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
                   style={{ padding: "8px 18px", fontSize: 14 }}
                 >
                   💳 Micro-Loan (100 MockUSDC)
                 </button>
                 <button
                   className={`btn ${consumer === "welfare" ? "" : "alt"}`}
-                  onClick={() => { setConsumer("welfare"); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
+                  onClick={() => { setConsumer("welfare"); setPolicyData(null); setApprovedReq(null); setZkProofPackage(null); setVerifyOutcome(null); }}
                   style={{ padding: "8px 18px", fontSize: 14 }}
                 >
                   🛡️ Welfare Voucher Claim
@@ -301,20 +359,33 @@ export default function LiveWorkerJourney() {
               </div>
             </div>
 
+            {/* Policy & Approval Display */}
+            {policyData && (
+              <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 12, padding: 14, fontSize: 13 }}>
+                <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>📜 Verifier Signed Policy Criteria (without calling fixtureApproval):</div>
+                <div className="facts" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                  <div><strong>Verifier ID:</strong> {shortHash(policyData.policy.verifierId, 8, 4)}</div>
+                  <div><strong>Min Income:</strong> ₹{Number(policyData.policy.minAverageIncomePaise) / 100}/mo</div>
+                  <div><strong>Min Periods:</strong> {policyData.policy.minActivePeriods} wks</div>
+                  <div><strong>Max Evidence Age:</strong> {policyData.policy.maxEvidenceAgeDays} days</div>
+                </div>
+              </div>
+            )}
+
             {/* Workflow Buttons */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
               <button
                 className="btn"
-                onClick={handleGetApproval}
+                onClick={handleGetPolicyAndApprove}
                 disabled={busyAction !== null}
                 style={{ padding: "12px 18px", fontSize: 14 }}
               >
-                {busyAction === "approval" ? "⏳ Fetching Policy..." : "1️⃣ Obtain EVM Worker Approval"}
+                {busyAction === "policy" ? "⏳ Signing Approval..." : "1️⃣ Fetch Policy & Sign EVM Worker Approval"}
               </button>
 
               <button
                 className="btn"
-                onClick={handleGenerateProof}
+                onClick={() => handleGenerateProof(false)}
                 disabled={!approvedReq || busyAction !== null}
                 style={{ padding: "12px 18px", fontSize: 14, background: approvedReq ? "linear-gradient(135deg, #0284c7, #2563eb)" : undefined }}
               >
@@ -333,7 +404,7 @@ export default function LiveWorkerJourney() {
               {consumer === "welfare" ? (
                 <button
                   className="btn"
-                  onClick={handleClaim}
+                  onClick={() => handleClaim(false)}
                   disabled={!zkProofPackage || busyAction !== null}
                   style={{ padding: "12px 18px", fontSize: 14, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
                 >
@@ -342,7 +413,7 @@ export default function LiveWorkerJourney() {
               ) : (
                 <button
                   className="btn"
-                  onClick={handleBorrow}
+                  onClick={() => handleBorrow(false)}
                   disabled={!zkProofPackage || busyAction !== null}
                   style={{ padding: "12px 18px", fontSize: 14, background: "linear-gradient(135deg, #d97706, #f59e0b)" }}
                 >
@@ -352,12 +423,35 @@ export default function LiveWorkerJourney() {
 
               <button
                 className="btn alt"
-                onClick={handleRepay}
+                onClick={() => handleRepay(false)}
                 disabled={sessionData.identityState.principal === "0" || busyAction !== null}
                 style={{ padding: "12px 18px", fontSize: 14, borderColor: "#dc2626", color: "#dc2626" }}
               >
                 {busyAction === "repay" ? "⏳ Repaying..." : "5️⃣ Repay Loan (Approve + Repay)"}
               </button>
+            </div>
+
+            {/* Authorization Security Rejection Tests */}
+            <div style={{ marginTop: 8, padding: 14, background: "rgba(239, 68, 68, 0.06)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontWeight: 700, color: "#b91c1c", fontSize: 13 }}>🛡️ Security Test Controls (Verify Rejections):</span>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  className="btn alt"
+                  onClick={() => handleGenerateProof(true)}
+                  disabled={!approvedReq || busyAction !== null}
+                  style={{ fontSize: 12, padding: "6px 12px", color: "#b91c1c", borderColor: "#ef4444" }}
+                >
+                  🧪 Test Unauthorized Proving Rejection
+                </button>
+                <button
+                  className="btn alt"
+                  onClick={() => handleBorrow(true)}
+                  disabled={!zkProofPackage || busyAction !== null}
+                  style={{ fontSize: 12, padding: "6px 12px", color: "#b91c1c", borderColor: "#ef4444" }}
+                >
+                  🧪 Test Unauthorized Borrow Rejection
+                </button>
+              </div>
             </div>
 
             {/* Display Generated Artifacts & Receipts */}

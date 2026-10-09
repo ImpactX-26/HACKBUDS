@@ -5,15 +5,15 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const consumer = searchParams.get("consumer") || "loan";
-    const { host } = await getLocalBackend();
+    const { host, bundle } = await getLocalBackend();
 
-    const policy = await host.call("fixturePolicy", { consumer });
-    const fullApprovedRequest = await host.call("fixtureApproval", { request: policy });
+    // Returns ONLY the verifier-signed policy without calling fixtureApproval
+    const policyRequest = await host.call("fixturePolicy", { consumer });
 
     return NextResponse.json({
       ok: true,
-      policy,
-      request: fullApprovedRequest,
+      policyRequest, // Contains { protocolVersion, eligibilityProfile, consumer, passportId, policy, verifierSignature }
+      holderWallet: bundle.fixture.holder,
     });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
