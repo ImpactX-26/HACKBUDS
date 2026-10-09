@@ -429,14 +429,21 @@ export default function Login() {
           )}
         </section>
 
-        <section className="stack" style={{ gap: 8, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
-          <button className="btn" onClick={logIn} disabled={!chosen}>
-            {t("loginButton")}
-          </button>
+        <section className="stack" style={{ gap: 12, alignItems: "flex-start", position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+            <button className="btn" onClick={logIn} disabled={!chosen}>
+              {t("loginButton")}
+            </button>
+            <Link href="/login" className="btn alt" style={{ padding: "12px 24px", fontWeight: 700 }}>
+              Worker Login / Sign Up →
+            </Link>
+          </div>
           <p className="small muted">{chosen ? t("loginDemoNote") : t("loginPickFirst")}</p>
         </section>
 
         <p className="small" style={{ position: "relative", zIndex: 1, display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
+          <Link href="/login" style={{ fontWeight: 700, color: "#0284c7" }}>🔑 Worker Login / Sign Up (/login) →</Link>
+          <span>•</span>
           <Link href="/verify" target="_blank" rel="noopener noreferrer">{t("lenderLink")} ↗</Link>
           <span>•</span>
           <Link href="/live" style={{ fontWeight: 700, color: "#0284c7" }}>⚡ Live ZK Worker Journey (/live) →</Link>
