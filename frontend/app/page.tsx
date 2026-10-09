@@ -436,10 +436,12 @@ export default function Login() {
           <p className="small muted">{chosen ? t("loginDemoNote") : t("loginPickFirst")}</p>
         </section>
 
-        <p className="small" style={{ position: "relative", zIndex: 1, display: "flex", gap: "16px", alignItems: "center" }}>
+        <p className="small" style={{ position: "relative", zIndex: 1, display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
           <Link href="/verify" target="_blank" rel="noopener noreferrer">{t("lenderLink")} ↗</Link>
           <span>•</span>
           <Link href="/live" style={{ fontWeight: 700, color: "#0284c7" }}>⚡ Live ZK Worker Journey (/live) →</Link>
+          <span>•</span>
+          <Link href="/forge" style={{ fontWeight: 700, color: "#e11d48" }}>🧪 Forgery Test Lab (/forge) →</Link>
         </p>
       </main>
     </>

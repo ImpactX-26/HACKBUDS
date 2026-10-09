@@ -735,6 +735,10 @@ export default function PassportPage() {
               <Link href="/live" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px", color: "#0284c7" }}>
                 <span>⚡ Live ZK Journey (/live)</span>
               </Link>
+
+              <Link href="/forge" className="btn alt linkbtn" style={{ padding: "12px 20px", fontSize: "14px", display: "inline-flex", alignItems: "center", gap: "6px", color: "#e11d48" }}>
+                <span>🧪 {t("testLabLink")}</span>
+              </Link>
             </div>
           </section>
         </>
