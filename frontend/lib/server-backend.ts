@@ -1,57 +1,48 @@
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import {pathToFileURL} from "node:url";
+import {resolve} from "node:path";
+import {getAddress} from "ethers";
+import {NextResponse} from "next/server";
 
-let backendHost: any = null;
-let bridgeInstance: any = null;
-
-function resolveContractsPath(relativePath: string): string {
-  const candidates = [
-    resolve(process.cwd(), "repo/contracts", relativePath),
-    resolve(process.cwd(), "contracts", relativePath),
-    resolve(process.cwd(), "../contracts", relativePath),
-    resolve(process.cwd(), "../../contracts", relativePath),
-    resolve("C:/Users/harsh/Downloads/GIG/repo/contracts", relativePath),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  throw new Error(`Could not locate contract file for relative path: ${relativePath}`);
+export const APP_ORIGIN = process.env.GIGVAULT_APP_ORIGIN || "http://localhost:3000";
+const COOKIE = "gv_local_worker";
+const runtime = globalThis as typeof globalThis & {gvBackendPromise?: Promise<any>};
+const load = new Function("url", "return import(url);");
+export async function getLocalBackend(): Promise<any> {
+  if (!runtime.gvBackendPromise) runtime.gvBackendPromise = (async () => {
+    const contracts = resolve(process.cwd(), "../contracts");
+    const [{startLocalBackend},{createWorkerProofBridge},{createLocalWalletAuth}] = await Promise.all([
+      "process-client.mjs", "worker-proof-bridge.mjs", "local-wallet-auth.mjs"
+    ].map(name => load(pathToFileURL(resolve(contracts,"integration",name)).href)));
+    const host = await startLocalBackend({port:0});
+    const auth = createLocalWalletAuth({origin:APP_ORIGIN,domain:{name:"GigVaultLocalSession",version:"1",
+      chainId:host.bundle.chainId,verifyingContract:host.bundle.contracts.passport.address}});
+    const bridge = createWorkerProofBridge({authenticateWorker:(context:any)=>auth.authenticate(context?.token),
+      client:{getPassport:(passportId:string)=>host.call("getPassport",{passportId}),
+        generateProof:(request:any)=>host.call("generateProof",{request})}});
+    return {host,auth,bridge,bundle:host.bundle};
+  })().catch(error => {runtime.gvBackendPromise=undefined;throw error;});
+  return runtime.gvBackendPromise;
 }
-
-// Escapes Webpack bundling by evaluating native dynamic ESM import at runtime
-const dynamicImport = new Function("url", "return import(url);");
-
-export async function getLocalBackend() {
-  if (!backendHost) {
-    const processClientPath = resolveContractsPath("integration/process-client.mjs");
-    const bridgePath = resolveContractsPath("integration/worker-proof-bridge.mjs");
-
-    const { startLocalBackend } = await dynamicImport(pathToFileURL(processClientPath).href);
-    const { createWorkerProofBridge } = await dynamicImport(pathToFileURL(bridgePath).href);
-
-    backendHost = await startLocalBackend({ port: 0 });
-
-    bridgeInstance = createWorkerProofBridge({
-      authenticateWorker: async (context: any) => {
-        if (!context || typeof context.workerWallet !== "string" || !context.workerWallet.startsWith("0x")) {
-          throw new Error("AUTHENTICATION_REQUIRED");
-        }
-        return context.workerWallet;
-      },
-      client: {
-        getPassport: (passportId: string) => backendHost.call("getPassport", { passportId }),
-        generateProof: (request: any) => backendHost.call("generateProof", { request }),
-      },
-    });
-  }
-
-  return {
-    host: backendHost,
-    bridge: bridgeInstance,
-    bundle: backendHost.bundle,
-  };
+function failure(code:string): never {throw Object.assign(new Error(code),{code});}
+export function requireOrigin(request:Request) {
+  if(request.headers.get("origin")!==APP_ORIGIN)failure("ORIGIN_REJECTED");
+}
+export async function requireWorker(request:Request,passportId="1") {
+  requireOrigin(request);
+  const token=request.headers.get("cookie")?.split(";").map(v=>v.trim()).find(v=>v.startsWith(COOKIE+"="))?.slice(COOKIE.length+1);
+  if(!token)failure("AUTHENTICATION_REQUIRED"); // Reject before starting a backend/prover.
+  const backend=await getLocalBackend();
+  const workerWallet=backend.auth.authenticate(token);
+  const passport=await backend.host.call("getPassport",{passportId});
+  if(getAddress(workerWallet)!==getAddress(passport.holderWallet))failure("UNAUTHORIZED_WORKER");
+  if(passport.status!=="ACTIVE")failure("PASSPORT_REVOKED");
+  return {...backend,context:{token},workerWallet};
+}
+export function routeError(error:any) {
+  const code=error.code || "BACKEND_ERROR";
+  const status=code==="AUTHENTICATION_REQUIRED"?401:["UNAUTHORIZED_WORKER","ORIGIN_REJECTED"].includes(code)?403:400;
+  return NextResponse.json({ok:false,error:error.message || code,code},{status});
+}
+export function loginCookie(response:NextResponse,token:string) {
+  response.cookies.set(COOKIE,token,{httpOnly:true,sameSite:"strict",secure:new URL(APP_ORIGIN).protocol==="https:",path:"/",maxAge:1800});
 }

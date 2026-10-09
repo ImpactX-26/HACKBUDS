@@ -5,7 +5,7 @@ import Link from "next/link";
 import { shortHash } from "@/lib/format";
 import { useLang } from "@/lib/lang";
 import { calculateGigScore } from "../../../contracts/integration/gig-score.mjs";
-import { approvalTypes, approvalFor, domainFor, TypedDataEncoder } from "../../../contracts/proposal/authorization-v02.mjs";
+import {BrowserProvider, JsonRpcProvider, TypedDataEncoder, verifyTypedData} from "ethers";
 
 export default function LiveWorkerJourney() {
   const { t } = useLang();
@@ -27,6 +27,7 @@ export default function LiveWorkerJourney() {
   const [stepLog, setStepLog] = useState<string[]>([]);
 
   // Generated Artifacts
+  const [useLocalWallet, setUseLocalWallet] = useState(true);
   const [policyData, setPolicyData] = useState<any | null>(null);
   const [approvedReq, setApprovedReq] = useState<any | null>(null);
   const [zkProofPackage, setZkProofPackage] = useState<any | null>(null);
@@ -59,50 +60,42 @@ export default function LiveWorkerJourney() {
     setStepLog((prev) => [msg, ...prev]);
   }
 
-  // 1. Fetch Policy (WITHOUT calling fixtureApproval) & Sign EVM Worker Approval
+  async function signWorkerTypedData(domain:any,types:any,value:any) {
+    if(!sessionData)throw new Error("Load the local session first");
+    const holder=sessionData.passport.holderWallet;
+    let signature:string;
+    if(useLocalWallet){
+      // Explicit local synthetic mode: unlocked loopback Ganache account, no key export.
+      const provider=new JsonRpcProvider(sessionData.rpcUrl);
+      try {signature=await provider.send("eth_signTypedData_v4",[holder,TypedDataEncoder.getPayload(domain,types,value)]);}
+      finally {provider.destroy();}
+    }else{
+      const ethereum=(window as any).ethereum;if(!ethereum)throw new Error("Connect an EVM wallet, or select the local synthetic development wallet");
+      const provider=new BrowserProvider(ethereum);await provider.send("eth_requestAccounts",[]);
+      const signer=await provider.getSigner();
+      if((await signer.getAddress()).toLowerCase()!==holder.toLowerCase())throw new Error("Connected wallet is not this passport's holder");
+      signature=await signer.signTypedData(domain,types,value);
+    }
+    if(verifyTypedData(domain,types,value,signature).toLowerCase()!==holder.toLowerCase())throw new Error("Worker signature verification failed");
+    return signature;
+  }
   async function handleGetPolicyAndApprove() {
     try {
-      setBusyAction("policy");
-      log(`Fetching ${consumer} verifier policy (without calling fixtureApproval)...`);
-      const res = await fetch(`/api/backend/policy?consumer=${consumer}`);
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error);
-
-      setPolicyData(data.policyRequest);
-      log(`✓ Verifier-signed policy fetched. Verifier ID: ${data.policyRequest.policy.verifierId}`);
-
-      log(`Generating explicit worker EVM EIP-712 approval for passport #${data.policyRequest.passportId}...`);
-      
-      const consumerAddress = consumer === "welfare" ? "0x482615233e751BCC2A2762410E03549cADfEBaeD" : "0x2f3A24dC237b1f914437DB5824D9263510fd46D7";
-      const domain = domainFor(1337, consumerAddress);
-      
-      const passportRecord = {
-        evidenceVersion: BigInt(sessionData?.passport.evidenceVersion || "1"),
-        evidenceCommitment: BigInt(sessionData?.passport.evidenceCommitment || "0"),
-        holderWallet: sessionData?.passport.holderWallet || "0x0000000000000000000000000000000000000000",
-      };
-
-      const approvalValue = approvalFor(data.policyRequest.policy, data.policyRequest.passportId, passportRecord, domain);
-      
-      // In browser, worker signs typed data with their EVM wallet.
-      // For local synthetic demonstration, we compute approvalTypedHash:
-      const approvalTypedHash = TypedDataEncoder.hash(domain, approvalTypes, approvalValue);
-      const dummyWorkerSignature = "0x" + Array.from({ length: 65 }, () => "ff").join("");
-
-      const reqWithApproval = {
-        ...data.policyRequest,
-        workerSignature: dummyWorkerSignature,
-      };
-
-      setApprovedReq(reqWithApproval);
-      setZkProofPackage(null);
-      setVerifyOutcome(null);
-      log(`✓ EVM worker EIP-712 approval computed for domain hash: ${shortHash(approvalTypedHash, 10, 4)}`);
-    } catch (err: any) {
-      log(`✕ Approval error: ${err.message}`);
-    } finally {
-      setBusyAction(null);
-    }
+      setBusyAction("policy");setApprovedReq(null);setZkProofPackage(null);setVerifyOutcome(null);
+      const p=await fetch(`/api/backend/policy?consumer=${consumer}`).then(r=>r.json());
+      if(!p.ok)throw new Error(p.error);setPolicyData(p.policyRequest);
+      const c=await fetch("/api/backend/auth/challenge",{method:"POST"}).then(r=>r.json());
+      if(!c.ok)throw new Error(c.error);
+      const loginSignature=await signWorkerTypedData(c.challenge.domain,c.challenge.types,c.challenge.value);
+      const login=await fetch("/api/backend/auth/verify",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({nonce:c.challenge.value.nonce,signature:loginSignature})}).then(r=>r.json());
+      if(!login.ok)throw new Error(login.error);
+      // Separate real signature over B's exact live policy/domain/current evidence.
+      const workerSignature=await signWorkerTypedData(p.approval.domain,p.approval.types,p.approval.value);
+      setApprovedReq({...p.policyRequest,workerSignature});
+      log("✓ Wallet ownership authenticated; exact worker EIP-712 approval signed and verified.");
+    }catch(err:any){log(`✕ Approval error: ${err.message}`);}
+    finally{setBusyAction(null);}
   }
 
   // 2. Call Private Prover Bridge (with verified caller session context)
@@ -118,7 +111,8 @@ export default function LiveWorkerJourney() {
       const res = await fetch("/api/backend/prove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq, workerWallet: callerWallet }),
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -168,7 +162,8 @@ export default function LiveWorkerJourney() {
       const res = await fetch("/api/backend/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage, workerWallet: callerWallet }),
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -194,7 +189,8 @@ export default function LiveWorkerJourney() {
       const res = await fetch("/api/backend/borrow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage, workerWallet: callerWallet }),
+        credentials: invalidAuth ? "omit" : "same-origin",
+        body: JSON.stringify({ request: approvedReq, proof: zkProofPackage }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -219,7 +215,7 @@ export default function LiveWorkerJourney() {
       const res = await fetch("/api/backend/repay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passportId: "1", workerWallet: callerWallet }),
+        body: JSON.stringify({ passportId: "1" }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
@@ -359,6 +355,10 @@ export default function LiveWorkerJourney() {
               </div>
             </div>
 
+            <label style={{display:"block",marginBottom:12}}>
+              <input type="checkbox" checked={useLocalWallet} onChange={e=>setUseLocalWallet(e.target.checked)} />
+              {" "}Use local synthetic EVM development wallet (unlocked loopback account; test funds only).
+            </label>
             {/* Policy & Approval Display */}
             {policyData && (
               <div style={{ background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: 12, padding: 14, fontSize: 13 }}>
@@ -366,7 +366,7 @@ export default function LiveWorkerJourney() {
                 <div className="facts" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
                   <div><strong>Verifier ID:</strong> {shortHash(policyData.policy.verifierId, 8, 4)}</div>
                   <div><strong>Min Income:</strong> ₹{Number(policyData.policy.minAverageIncomePaise) / 100}/mo</div>
-                  <div><strong>Min Periods:</strong> {policyData.policy.minActivePeriods} wks</div>
+                  <div><strong>Min Periods:</strong> {policyData.policy.minActivePeriods} {policyData.policy.activityIsWeekly === "1" ? "completed weeks" : "completed months"}</div>
                   <div><strong>Max Evidence Age:</strong> {policyData.policy.maxEvidenceAgeDays} days</div>
                 </div>
               </div>
@@ -500,7 +500,7 @@ export default function LiveWorkerJourney() {
                 <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: "#0f172a", margin: 0 }}>
                   Frontend Gig Score (Worker UI Display Only)
                 </h3>
-                <span className="small muted">Calculated via official calculateGigScore from contracts/integration/gig-score.mjs</span>
+                <span className="small muted">Illustrative score example, not derived from this passport. Calculated via official calculateGigScore.</span>
               </div>
               <div style={{ background: "#059669", color: "#ffffff", padding: "4px 16px", borderRadius: 999, fontWeight: 900, fontFamily: "var(--f-mono)" }}>
                 Score: {scoreResult.score} / 100 ({scoreBand})
