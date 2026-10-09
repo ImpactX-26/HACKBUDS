@@ -200,14 +200,14 @@ export default function LoginPage() {
                     <span style={{ fontSize: "12px", color: "#0284c7", fontFamily: "var(--f-mono)" }}>📱 +91 {acc.mobile}</span>
                   </div>
                   <span style={{
-                    background: "#0284c7",
-                    color: "#ffffff",
-                    fontSize: "11px",
+                    background: "rgba(2, 132, 199, 0.12)",
+                    color: "#0284c7",
+                    fontSize: "12px",
                     fontWeight: 700,
-                    padding: "3px 8px",
+                    padding: "4px 10px",
                     borderRadius: "6px"
                   }}>
-                    OTP: {acc.otp}
+                    Select →
                   </span>
                 </button>
               ))}
