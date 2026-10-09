@@ -23,37 +23,37 @@
   "realProofs": 6,
   "proofMetrics": [
     {
-      "seconds": 18.7983214,
-      "workerMaxRssBytes": 417030144,
-      "workerRssBytes": 393240576
+      "seconds": 10.225612999999997,
+      "workerMaxRssBytes": 406474752,
+      "workerRssBytes": 320696320
     },
     {
-      "seconds": 19.777031799999996,
-      "workerMaxRssBytes": 422547456,
-      "workerRssBytes": 392441856
+      "seconds": 10.186789000000005,
+      "workerMaxRssBytes": 443236352,
+      "workerRssBytes": 320946176
     },
     {
-      "seconds": 20.126342599999976,
-      "workerMaxRssBytes": 437743616,
-      "workerRssBytes": 394768384
+      "seconds": 10.464380400000008,
+      "workerMaxRssBytes": 442195968,
+      "workerRssBytes": 318824448
     },
     {
-      "seconds": 19.868294200000005,
-      "workerMaxRssBytes": 422363136,
-      "workerRssBytes": 392810496
+      "seconds": 10.313964699999996,
+      "workerMaxRssBytes": 435224576,
+      "workerRssBytes": 319926272
     },
     {
-      "seconds": 19.151629799999995,
-      "workerMaxRssBytes": 435396608,
-      "workerRssBytes": 393715712
+      "seconds": 10.194378200000006,
+      "workerMaxRssBytes": 442781696,
+      "workerRssBytes": 320536576
     },
     {
-      "seconds": 19.004771800000018,
-      "workerMaxRssBytes": 422526976,
-      "workerRssBytes": 392261632
+      "seconds": 10.412636900000011,
+      "workerMaxRssBytes": 435826688,
+      "workerRssBytes": 320897024
     }
   ],
-  "elapsedSeconds": 248.91923440000002,
+  "elapsedSeconds": 171.994293,
   "bundle": {
     "protocolVersion": "gv-local-prover-b4/1",
     "eligibilityProfile": "gv-eligibility-0.2-provisional",
@@ -62,19 +62,19 @@
     "localOnly": true,
     "productionReady": false,
     "chainId": 1337,
-    "rpcUrl": "http://127.0.0.1:60171",
-    "setupId": "c6cd80fdf1c94a68e3785c0e86344a3f9b9c7b177a1780ba9282354057af33c5",
+    "rpcUrl": "http://127.0.0.1:54581",
+    "setupId": "d4e27c108e8ae3d03cdc182e8867aa0d9028e7e065140dc94a2fbda7d8a826c9",
     "setupDigests": {
       "r1cs": "24c6bd72250c00721a5bae7250a87c7e904fdcc02799a1cef37bf94aee41133a",
       "wasm": "d71a4f4a5fdf7d77d4f04d8bc95940dc3650e942fe948c8403115f1f586291a2",
       "calculator": "cc2d37b2cff2a589dd86f8636f1a1dc9fe4a854550b021aa0cea2e235d14e942",
-      "zkey": "21c61081676adaf961ac22d24534a08b1c9edff03861f1a3ade7df1d8074c0bb",
-      "vk": "8ab9ad217507361e8f1ec44644465b667f2f4c90be6ca4c9077e3bdeeb2a73a6",
-      "verifier": "7fe6e6726ec90dd327f54b1c4f6b35ad228a53f94b027b9a95f6962d6d56eab6"
+      "zkey": "3b2685b53c228b6c76da52eee997136e83f4f8100b57a5eaf3d689d05ed8e068",
+      "vk": "b45d39cc4bfec2caf5a330b4eafdd957f7e70d30a90c176b75675543cc6ed1e6",
+      "verifier": "bc6d07feac1526551c68eaff1cb0135eafcc4de88095d29abc77e35fe8c893ec"
     },
     "contracts": {
       "passport": {
-        "address": "0xe6fe5b9e89Fd283Cb3D5D1dcAd2B714ecd6E64be",
+        "address": "0x504B3bEE3c3b21645EE7aA18e7e89840F4887d6e",
         "abi": [
           {
             "inputs": [
@@ -1284,7 +1284,7 @@
         "contract": "GigPassport"
       },
       "math": {
-        "address": "0xA5aba3907444E81307C72F33FFe84eBA9e90A0C8",
+        "address": "0x9DeF1319e1711A9dC458e575166413a41E373150",
         "abi": [
           {
             "inputs": [
@@ -1324,7 +1324,7 @@
         "contract": "Groth16Verifier"
       },
       "token": {
-        "address": "0x422F658C70796ec560b51b473442e5Ccf5fC0d30",
+        "address": "0x871134eC4b30718a59dF8734977133fB7BcB0761",
         "abi": [
           {
             "inputs": [],
@@ -1643,7 +1643,7 @@
         "contract": "MockUSDCV02"
       },
       "gate": {
-        "address": "0x351f9FAdE2BF47226a207D450728E6e241faFD2C",
+        "address": "0xe53547A696243A3244ec97ef6190b572C57c202E",
         "abi": [
           {
             "inputs": [
@@ -2058,7 +2058,7 @@
         "contract": "EligibilityGateV02"
       },
       "welfare": {
-        "address": "0x4d91a142D12893b618969C1862eE50a7134Ba4A8",
+        "address": "0x482615233e751BCC2A2762410E03549cADfEBaeD",
         "abi": [
           {
             "inputs": [
@@ -2658,7 +2658,7 @@
         "contract": "WelfareVaultV02"
       },
       "loan": {
-        "address": "0x4A7cBCFfe2207b9c627274Cc99ac359F0cfd5445",
+        "address": "0x2f3A24dC237b1f914437DB5824D9263510fd46D7",
         "abi": [
           {
             "inputs": [
@@ -3338,9 +3338,9 @@
       }
     },
     "roles": {
-      "admin": "0x432f3549ca6B77356151f071c6D5eD2453C238aB",
-      "attester": "0x2D57127ce7FE38b759A75715e86998bA70aD5f70",
-      "verifier": "0xA1166f16Defd13338A509AfA9132869D4a371503"
+      "admin": "0x038086d0A93D6eA4dC48cF173054A4F468704003",
+      "attester": "0x1A10C3aFdc6E7a4bA405e548b692D2dD95d51fAd",
+      "verifier": "0x62fFF4967df71E9940b132aBC7aEb40e777d312d"
     },
     "domain": {
       "name": "GigVaultEligibility",
@@ -3501,14 +3501,14 @@
     },
     "fixture": {
       "passportId": "1",
-      "holder": "0x421eAd207458114A63c75B56cFeAF7375D5301C7",
+      "holder": "0xb8ecEFDC69d3e7AAa8503922fb7B1Ec0aa099d43",
       "identity": "0x5522b522679e5285c6a5ec22eff5e141aaa94f3f5d4d3a3e2a335e70ef355b7b",
       "source": "LOCAL_SYNTHETIC_FIXTURE",
       "evidenceHandle": "b5-synthetic-worker"
     },
     "actors": {
-      "worker": "0x421eAd207458114A63c75B56cFeAF7375D5301C7",
-      "replacement": "0xc3b23B46893811F667b78E408f303F64968c528c"
+      "worker": "0xb8ecEFDC69d3e7AAa8503922fb7B1Ec0aa099d43",
+      "replacement": "0x422d3D8F9864a5734B9Ab289a0714A2DD2AcF3AB"
     },
     "privateInterface": {
       "kind": "trusted-in-process-or-parent-child-IPC",
