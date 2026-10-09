@@ -32,6 +32,12 @@ export default function Forge() {
   const [activeResult, setActiveResult] = useState<QrResult | null>(null);
   const [activePayloadText, setActivePayloadText] = useState<string | null>(null);
 
+  // Custom Input Sandbox State
+  const [customBand, setCustomBand] = useState<ScoreBand>("Strong");
+  const [customSigType, setCustomSigType] = useState<"valid" | "tampered">("valid");
+  const [customAge, setCustomAge] = useState<"fresh" | "expired">("fresh");
+  const [customPassportStatus, setCustomPassportStatus] = useState<"active" | "revoked">("active");
+
   const passportId = passport?.passportId ?? null;
 
   useEffect(() => {
@@ -89,6 +95,37 @@ export default function Forge() {
     const res = await checkPayload(text, "qr", getPassportFn, now);
     setActiveResult(res);
     setBusy(false);
+  }
+
+  // Live Custom Backend Verification Sandbox runner
+  async function runCustomVerification() {
+    if (!card || personaId === null) return;
+    const now = Date.now();
+    const wallet = await getWallet(personaId);
+
+    const timestamp = customAge === "fresh" ? now : now - 65_000;
+    let payload = await makePayload(wallet, card, timestamp);
+
+    if (customBand !== payload.band) {
+      payload = { ...payload, band: customBand };
+    }
+
+    if (customSigType === "tampered") {
+      const otherWallet = await getWallet(99999);
+      const fakeSig = await otherWallet.sign(
+        signedMessage(card.passportId, payload.band, payload.exp)
+      );
+      payload = { ...payload, sig: fakeSig, pub: otherWallet.publicHex };
+    }
+
+    const customGetPassport = customPassportStatus === "revoked"
+      ? async (id: number): Promise<Passport> => {
+          const real = await api.getPassport(id);
+          return { ...real, revoked: true };
+        }
+      : undefined;
+
+    await runCheck("Live Custom Input Verification", payload, customGetPassport, now);
   }
 
   // 0. Original Valid QR
@@ -215,6 +252,152 @@ export default function Forge() {
 
       {error && <p className="note bad">{error}</p>}
 
+      {/* Interactive Custom Input & Verification Engine Sandbox */}
+      <section
+        className="card"
+        style={{
+          padding: 24,
+          background: "linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%)",
+          border: "2px solid #0284c7",
+          borderRadius: 20,
+          boxShadow: "0 12px 36px rgba(2, 132, 199, 0.12)",
+          gap: 20,
+          display: "flex",
+          flexDirection: "column"
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a", margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+              <span>🎛️</span>
+              <span>Interactive Backend Verification Sandbox</span>
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "#475569", margin: "4px 0 0 0" }}>
+              Modify any input parameters below to test live backend admission / rejection rules.
+            </p>
+          </div>
+          <span style={{ background: "#0284c7", color: "#ffffff", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
+            LIVE BACKEND ENGINE
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+          {/* Input 1: Rating Band */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: "13px", fontWeight: 700, color: "#334155" }}>
+              1. Rating Band (Payload)
+            </label>
+            <select
+              value={customBand}
+              onChange={(e) => setCustomBand(e.target.value as ScoreBand)}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: "#0f172a",
+                background: "#ffffff"
+              }}
+            >
+              <option value="Strong">Strong Band (Valid)</option>
+              <option value="Good">Good Band</option>
+              <option value="Fair">Fair Band</option>
+              <option value="Weak">Weak Band (Tampered/Changed)</option>
+            </select>
+          </div>
+
+          {/* Input 2: Signature Type */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: "13px", fontWeight: 700, color: "#334155" }}>
+              2. Wallet Signature Key
+            </label>
+            <select
+              value={customSigType}
+              onChange={(e) => setCustomSigType(e.target.value as "valid" | "tampered")}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: customSigType === "valid" ? "#047857" : "#b91c1c",
+                background: "#ffffff"
+              }}
+            >
+              <option value="valid">✓ Valid Owner Signature</option>
+              <option value="tampered">⚠️ Unauthorized/Fake Key</option>
+            </select>
+          </div>
+
+          {/* Input 3: QR Code Age */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: "13px", fontWeight: 700, color: "#334155" }}>
+              3. QR Timestamp / Freshness
+            </label>
+            <select
+              value={customAge}
+              onChange={(e) => setCustomAge(e.target.value as "fresh" | "expired")}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: customAge === "fresh" ? "#047857" : "#b91c1c",
+                background: "#ffffff"
+              }}
+            >
+              <option value="fresh">✓ Fresh Payload (&lt; 60s)</option>
+              <option value="expired">⏱️ Replayed Old QR (65s ago)</option>
+            </select>
+          </div>
+
+          {/* Input 4: Passport State */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: "13px", fontWeight: 700, color: "#334155" }}>
+              4. On-Chain Passport Status
+            </label>
+            <select
+              value={customPassportStatus}
+              onChange={(e) => setCustomPassportStatus(e.target.value as "active" | "revoked")}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #cbd5e1",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: customPassportStatus === "active" ? "#047857" : "#b91c1c",
+                background: "#ffffff"
+              }}
+            >
+              <option value="active">✓ Passport Active</option>
+              <option value="revoked">🚫 Passport Revoked</option>
+            </select>
+          </div>
+        </div>
+
+        <button
+          className="btn"
+          onClick={runCustomVerification}
+          disabled={busy || !card}
+          style={{
+            padding: "14px 24px",
+            fontSize: "15px",
+            fontWeight: 800,
+            background: "linear-gradient(135deg, #0284c7 0%, #2563eb 100%)",
+            color: "#ffffff",
+            borderRadius: "12px",
+            border: "none",
+            boxShadow: "0 4px 14px rgba(2, 132, 199, 0.3)",
+            cursor: "pointer",
+            width: "fit-content"
+          }}
+        >
+          {busy ? "Running Backend Verification..." : "⚡ Run Live Backend Verification Engine →"}
+        </button>
+      </section>
+
       {/* Control Buttons Panel */}
       <section
         className="card"
@@ -228,7 +411,7 @@ export default function Forge() {
         }}
       >
         <h2 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
-          ⚡ Select a Forgery or Security Test
+          ⚡ Preset Attack Simulations
         </h2>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
