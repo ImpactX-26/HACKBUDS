@@ -60,21 +60,22 @@ wallet/provider; public SDK calls cannot use backend fixture signing keys.
 The secured prover is in-process/private IPC, not an HTTP endpoint. A browser
 bridge must use the application's authenticated backend. Published frontend
 branch inspected in this session contains reference documents but no app code;
-frontend integration cannot honestly be reported as finished here.
+frontend integration could not be reported as finished at that checkpoint. The
+subsequently published frontend `1372b64` has been inspected read-only; see
+`contracts/integration/FRONTEND_LOCAL_HANDOFF.md` for its exact remaining wiring.
 
 ## A's newly published checkpoint
 
 Pinned source: `Manas150706/HACKBUDS` at
-`b43b17084aea375a0c4bc59c53349d9f6a170396`.
+`51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c`.
 All ten unchanged B trust checks pass. This verifies the tested guards; it is not
 genuine real-Aadhaar integration (zero real Aadhaar proofs).
 
-**Only required A→B fix identified for this local financial flow:** in
-`backend/src/evidence/attestation-service.ts`, mint, refresh and reissue still
-send `schemaVersion: 1`. A must send the already approved `schemaVersion: 2`
-for newly reconstructed `gv-poseidon-hash-only-0.2.0` commitments. Publish SHA.
-Do not relabel existing v0.1 passports/proofs. B must not override this field.
-Then rerun the existing actual A→B Groth16/welfare/100-MockUSDC/repayment suite.
+The previous schema mismatch is resolved: A mint, refresh and reissue send the
+approved schema 2 for newly reconstructed profile 0.2 commitments. The actual
+A→B proof/welfare/100-MockUSDC/repayment suite now passes. Do not relabel existing
+v0.1 passports/proofs. Historical schema-1 rejection remains tested separately.
+Exact new validation: `docs/review/BACKEND_B_A_SCHEMA2_VALIDATION.md`.
 
 | Boundary | Latest comparison / action |
 |---|---|
@@ -85,7 +86,7 @@ Then rerun the existing actual A→B Groth16/welfare/100-MockUSDC/repayment suit
 | Money | Exact paise; A safe-integer domain, B circuit uint64; reject outside A's supported range |
 | EIP-712 policy / approval | Unchanged exact signed request, consumer domain and current worker approval |
 | All 29 public signals | Existing order unchanged; score adds no signals |
-| Evidence envelope | Fr profile 0.2 compatible; on-chain schema 1 is incompatible with approved schema 2 |
+| Evidence envelope | Fr profile 0.2 and on-chain schema 2 compatible; historical schema 1 remains rejected |
 | Private transport | Existing authenticated A reconstruction callback + private B capability; no browser arrays |
 
 Do not begin a new security or protocol redesign to make this demo connect.

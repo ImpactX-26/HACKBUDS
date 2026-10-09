@@ -11,7 +11,7 @@
   "mintTransactions": [
     {
       "action": "mint",
-      "hash": "0x1ea2db983a1e9d29aa501dfe3cc633361e605c8d227908598bfb61b5faebce2c",
+      "hash": "0x8456cd8618430225589146383961d680d9904025c6eecaff6a7bbff98c9f1863",
       "status": 1,
       "blockNumber": 10
     }
@@ -19,5 +19,5 @@
   "reconstructionCalls": 0,
   "rejection": "EVIDENCE_SCHEMA_UNSUPPORTED",
   "aToBV02Completed": false,
-  "elapsedSeconds": 70.5007469
+  "elapsedSeconds": 100.388572
 }

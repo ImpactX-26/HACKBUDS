@@ -3,17 +3,25 @@ import assert from 'node:assert/strict';
 import {existsSync,mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {startLocalBackend} from '../integration/process-client.mjs';
+import {createWorkerProofBridge} from '../integration/worker-proof-bridge.mjs';
 test('persistent private controller stays callable and executes real proof/transactions until shutdown',async()=>{
   const started=performance.now(),host=await startLocalBackend();let closed=false;
   try {
     assert.equal(host.bundle.bundleVersion,'gv-local-integration-b5/1');assert.ok(existsSync(host.bundlePath));
     assert.equal((await host.call('getPassport',{passportId:'1'})).status,'ACTIVE');
+    // Synthetic server-owned authentication context; not a browser-supplied wallet.
+    const verifiedSession=Object.freeze({worker:host.bundle.fixture.holder});
+    const bridge=createWorkerProofBridge({authenticateWorker:context=>{
+      if(context!==verifiedSession)throw Error('Unauthenticated');return context.worker;
+    },client:{getPassport:passportId=>host.call('getPassport',{passportId}),
+      generateProof:request=>host.call('generateProof',{request})}});
+    await assert.rejects(()=>bridge.generateProof({passportId:'1'},{}),e=>e.code==='AUTHENTICATION_REQUIRED');
     await assert.rejects(()=>host.call('unknown'),e=>e.code==='METHOD_UNSUPPORTED');
     const make=async consumer=>{
       const signed=await host.call('fixturePolicy',{consumer});assert.ok(!signed.workerSignature);
       await assert.rejects(()=>host.call('generateProof',{request:signed}),e=>e.code==='WORKER_APPROVAL_INVALID');
       const request=await host.call('fixtureApproval',{request:signed});
-      const proof=await host.call('generateProof',{request});return {request,proof};
+      const proof=await bridge.generateProof(request,verifiedSession);return {request,proof};
     };
     const w=await make('welfare'),l=await make('loan');
     assert.equal((await host.call('verify',l)).income,'PASS');
@@ -24,7 +32,7 @@ test('persistent private controller stays callable and executes real proof/trans
     const status=await host.call('status');assert.equal(status.realProofs,2);
     await host.close();closed=true;assert.equal(existsSync(host.bundlePath),false);
     await assert.rejects(()=>host.call('status'),e=>e.code==='SESSION_CLOSED');
-    mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/v02-b5-private-ipc.json'),JSON.stringify({localOnly:true,syntheticOnly:true,
+    mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/v02-frontend-private-ipc.json'),JSON.stringify({localOnly:true,syntheticOnly:true,
       realProofs:status.realProofs,proofMetrics:status.proofMetrics,elapsedSeconds:(performance.now()-started)/1000,passed:true,cleanupVerified:true},null,2)+'\n');
   }finally{if(!closed)await host.close();}
 });

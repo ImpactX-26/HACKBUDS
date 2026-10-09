@@ -19,13 +19,14 @@ test('published A Fr/profile/tags and digest mappings match current B',()=>{
 test('actual A reconstruction/mint cannot silently relabel schema 1 as approved v0.2 schema 2',async()=>{
   let h;const started=performance.now();
   try {
-    h=await createBackendAIntegration();const p=await h.api.getPassport(h.passportId);
+    // Preserve the previously demonstrated upstream schema-1 incompatibility.
+    h=await createBackendAIntegration({sourceCommit:'b43b17084aea375a0c4bc59c53349d9f6a170396'});const p=await h.api.getPassport(h.passportId);
     assert.equal(p.schemaVersion,'1');assert.equal(h.passportClient.receipts[0].status,1);
     const signed=await h.signedRequest('loan');
     await assert.rejects(()=>h.approve(signed),e=>e.code==='EVIDENCE_SCHEMA_UNSUPPORTED');
     assert.equal(h.reconstructionCalls,0);assert.equal(h.session.stats.realProofs,0);
     assert.equal((await h.session.client.getPassport('1')).schemaVersion,'2');
-    writeFileSync('reports/v02-a-schema-boundary.json',JSON.stringify({sourceCommit:manifest.commit,
+    writeFileSync('reports/v02-a-schema-boundary.json',JSON.stringify({sourceCommit:h.sourceManifest.commit,
       localOnly:true,syntheticOnly:true,passed:2,realAadhaarProofs:0,realGroth16Proofs:0,
       aPassportId:p.passportId,aSchemaVersion:p.schemaVersion,requiredSchemaVersion:'2',
       mintTransactions:h.passportClient.receipts,reconstructionCalls:0,
