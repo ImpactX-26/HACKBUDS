@@ -1,0 +1,2 @@
+# Preserve the exported unified diff byte-for-byte, including its context markers.
+frontend-auth-fix.patch -text whitespace=-blank-at-eol

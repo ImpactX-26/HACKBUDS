@@ -1,0 +1,45 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "url": "http://localhost:3200/live",
+  "frontendBase": "4e9e77cb5d872aa247309a1f26da29d6c8940e56",
+  "actualBrowserClicks": true,
+  "realGroth16Proofs": 2,
+  "proofSeconds": [
+    23.94,
+    26.65
+  ],
+  "receipts": [
+    {
+      "action": "borrow",
+      "hash": "0x79a0501086ad06d7edd6c5f5e62dde740607f116fe135012851acd871c815b56",
+      "status": 1,
+      "blockNumber": 10
+    },
+    {
+      "action": "approve",
+      "hash": "0x5f6526a17fc0b586283f0314ffde7240e5f7dc367905cc51ba0682557186f996",
+      "status": 1,
+      "blockNumber": 11
+    },
+    {
+      "action": "repay",
+      "hash": "0x398656bcd5666360184c9c11b4bc68e0591ff11f68cf13f06c15b6151f9786d0",
+      "status": 1,
+      "blockNumber": 12
+    },
+    {
+      "action": "claim",
+      "hash": "0xc16bee7285cbc3b5cb3435a75d682936a87d9181b829e213b768868222c9ca0e",
+      "status": 1,
+      "blockNumber": 13
+    }
+  ],
+  "finalIdentityState": {
+    "identity": "0x5522b522679e5285c6a5ec22eff5e141aaa94f3f5d4d3a3e2a335e70ef355b7b",
+    "claimed": true,
+    "principal": "0"
+  },
+  "authentication": "real EVM typed signatures; single-use nonce; HttpOnly cookie; local unlocked synthetic development wallet",
+  "liveBackendAConnected": false
+}
