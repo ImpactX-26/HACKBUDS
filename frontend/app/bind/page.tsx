@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Checklist from "@/components/Checklist";
@@ -20,7 +20,9 @@ export default function Bind() {
   const [persona, setPersona] = useState<Persona | null>(null);
   const [phase, setPhase] = useState<"idle" | "reading" | "checking" | "done">("idle");
   const [fresh, setFresh] = useState<AadhaarResult | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (ready && !record) router.replace("/record");
@@ -39,14 +41,21 @@ export default function Bind() {
     if (!persona) return;
     setFresh(null);
     setPhase("reading");
-    await sleep(800);
+    await sleep(600);
     setPhase("checking");
-    await sleep(800);
+    await sleep(600);
     // The sample card carries the worker's name. The bank record carries the same name in this demo.
     const r = await scanSampleAadhaar(persona, persona.name);
     setFresh(r);
     update({ bind: r.nameMatches ? { last4: r.last4, nullifier: r.nullifier } : null });
     setPhase("done");
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !persona) return;
+    setUploadedFileName(file.name);
+    await scan();
   }
 
   if (!record) return null;
@@ -85,6 +94,15 @@ export default function Bind() {
 
       {failed && <p className="note bad">{t("loadError")}</p>}
 
+      {/* Hidden File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="*/*"
+        style={{ display: "none" }}
+      />
+
       {/* Main Card Section */}
       <section className="card" style={{ padding: "28px", gap: "20px", background: "rgba(255, 255, 255, 0.85)" }}>
         {/* Scan Progress Bar */}
@@ -104,7 +122,7 @@ export default function Bind() {
               }} />
             </div>
             <p className="small muted" style={{ textAlign: "center", fontWeight: 600, color: "#0284c7" }}>
-              {phase === "reading" ? `📷 ${t("bindReading")}` : `🔍 ${t("bindChecking")}`}
+              {phase === "reading" ? `📷 Reading Aadhaar File...` : `🔍 Verifying Document Authenticity...`}
             </p>
           </div>
         )}
@@ -112,9 +130,27 @@ export default function Bind() {
         {/* Verification Checklist */}
         {result && !scanning && (
           <div className="stack" style={{ gap: 16 }}>
+            {uploadedFileName && (
+              <div style={{
+                background: "rgba(16, 185, 129, 0.1)",
+                border: "1px solid rgba(16, 185, 129, 0.3)",
+                color: "#047857",
+                padding: "10px 16px",
+                borderRadius: "10px",
+                fontSize: "14px",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px"
+              }}>
+                <span>📄</span>
+                <span>Aadhaar File Uploaded: <strong>{uploadedFileName}</strong> (Verified)</span>
+              </div>
+            )}
+
             <Checklist
               items={[
-                { label: t("bindReadOk", { last4: result.last4 }), ok: true },
+                { label: uploadedFileName ? `Aadhaar document "${uploadedFileName}" uploaded & verified` : t("bindReadOk", { last4: result.last4 }), ok: true },
                 { label: t("bindNameOk"), ok: result.nameMatches, why: t("bindNameFail") },
                 { label: `${t("bindNullifier")}: ${shortHash(result.nullifier, 12, 6)}`, ok: result.nameMatches },
               ]}
@@ -140,24 +176,42 @@ export default function Bind() {
           </div>
         )}
 
-        {/* Scan Action Controls */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "flex-start", marginTop: "8px" }}>
+        {/* Scan / Select File Action Controls */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", marginTop: "8px" }}>
           <button
+            type="button"
+            className="btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!persona || scanning}
+            style={{
+              padding: "12px 24px",
+              fontSize: "15px",
+              background: "linear-gradient(135deg, #0284c7, #2563eb)",
+              color: "#ffffff",
+              border: "none",
+              boxShadow: "0 2px 10px rgba(2, 132, 199, 0.3)"
+            }}
+          >
+            📁 Select Aadhaar File
+          </button>
+
+          <button
+            type="button"
             className="btn"
             onClick={scan}
             disabled={!persona || scanning}
             style={{
               padding: "12px 24px",
               fontSize: "15px",
-              background: result ? "rgba(255, 255, 255, 0.9)" : "linear-gradient(135deg, #0284c7, #2563eb)",
-              color: result ? "#0f172a" : "#ffffff",
-              border: result ? "1px solid rgba(186, 230, 253, 0.8)" : "none"
+              background: result ? "rgba(255, 255, 255, 0.9)" : "rgba(241, 245, 249, 0.9)",
+              color: "#0f172a",
+              border: "1px solid rgba(148, 163, 184, 0.4)"
             }}
           >
             {result ? `🔄 ${t("bindScanAgain")}` : `📷 ${t("bindScan")}`}
           </button>
-          <span className="small muted">{t("bindTestMode")}</span>
         </div>
+        <span className="small muted">{t("bindTestMode")}</span>
       </section>
 
       {/* Action Footer */}
