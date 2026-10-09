@@ -29,6 +29,7 @@ run('pinned actual A consent/FIP/Poseidon orchestration mints real passport thro
   assert.equal(h.sourceManifest.commit,backendACommit);assert.equal(h.sourceManifest.files.length,36);
   assert.equal(h.passportClient.isMockClient,false);assert.equal(h.passportId,'2');
   const p=await h.api.getPassport(h.passportId);assert.equal(p.status,'ACTIVE');assert.equal(p.evidenceVersion,'1');
+  assert.equal(p.schemaVersion,'2');
   assert.equal(p.holderWallet.toLowerCase(),h.worker.address.toLowerCase());assert.equal(p.identityNullifierHash,h.identity);
   assert.equal(h.passportClient.receipts[0].status,1);assert.equal(h.reconstructionCalls,0);
   // The independent B5 bootstrap stays usable beside the A-derived passport.
@@ -107,6 +108,7 @@ run('stale evidence and expired policy reject before authenticated reconstructio
 run('A refresh uses actual attester transaction and invalidates prior B approval/proof',async()=>{
   const previous=await h.api.getPassport(h.passportId),p=await h.refresh();
   assert.equal(p.evidenceVersion,'2');assert.notEqual(p.evidenceCommitment,previous.evidenceCommitment);
+  assert.equal(p.schemaVersion,'2');
   assert.equal(h.passportClient.receipts.at(-1).action,'refresh');
   await code(()=>h.api.generateProof(loan),'WORKER_APPROVAL_INVALID');
   const fresh=await request('loan');await code(()=>h.api.verify(fresh,L),'EVIDENCE_CHANGED');

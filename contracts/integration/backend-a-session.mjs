@@ -7,8 +7,8 @@ import {BackendError} from './errors.mjs';
 
 /** LOCAL synthetic A services executing pinned upstream code, with a real B deployment.
  * No HTTP route, private evidence cache or implicit proof-policy approval. */
-export async function createBackendAIntegration(){
-  const {manifest,importModule:load}=prepareBackendASource();
+export async function createBackendAIntegration({sourceCommit}={}){
+  const {manifest,importModule:load}=prepareBackendASource({commit:sourceCommit});
   const modules=await Promise.all(['backend/src/fip/storage','backend/src/fip/consent-service','backend/src/fip/fip-service',
     'backend/src/identity/mock-idp','backend/src/identity/wallet-auth','backend/src/evidence/attestation-service',
     'backend/src/evidence/commitment-adapter','backend/src/evidence/prover-boundary','backend/src/fip/personas/index',

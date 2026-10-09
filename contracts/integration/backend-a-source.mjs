@@ -5,13 +5,15 @@ import {dirname,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import ts from '../../circuits/node_modules/typescript/lib/typescript.js';
 
-export const backendACommit='b43b17084aea375a0c4bc59c53349d9f6a170396';
+export const backendACommit='51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const root=resolve(repo,'contracts/artifacts/backend-a-b6',backendACommit);
 function git(args){const result=spawnSync('git',args,{cwd:repo,windowsHide:true,maxBuffer:8*1024*1024});
   if(result.status!==0)throw Error('Pinned Backend A source unavailable; run npm run integration:a:prepare.');return result.stdout;}
 /** Fetches PUBLIC Git objects only. No A checkout, branch modification or vendored pipeline. */
-export function prepareBackendASource({fetch=false}={}) {
+export function prepareBackendASource({fetch=false,commit=backendACommit}={}) {
+  if(!/^[0-9a-f]{40}$/.test(commit))throw Error('Expected exact Backend A commit SHA');
+  const root=resolve(repo,'contracts/artifacts/backend-a-b6',commit);
+  const backendACommit=commit; // Explicit historical test pins use a separate verified cache.
   if(fetch)git(['fetch','--no-tags','https://github.com/Manas150706/HACKBUDS.git',backendACommit]);
   const listing=git(['ls-tree','-r',backendACommit,'backend/src/fip','backend/src/evidence','backend/src/identity','shared/proposal']).toString();
   const files=[];

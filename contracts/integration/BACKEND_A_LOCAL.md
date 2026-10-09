@@ -1,13 +1,15 @@
 # B6 — actual Backend A runtime → local Backend B
 
 Current B uses approved Fr profile `gv-poseidon-hash-only-0.2.0` and passport
-schemaVersion 2. Pinned A b43b1708 now has matching Fr mappings and passes all ten
-unchanged trust checks, but its attestation service still submits schema 1 in
-mint, refresh and reissue. A must change those three fields to approved schema 2
-and publish its SHA. The prior ten-test financial report remains historical
-v0.1 evidence. B6 assertions are preserved with the new source pin and a separate
-v0.2 report path. Never rewrite A's cached blobs or override its schema to pass.
-Current validation and frontend handoff: `docs/review/GIG_SCORE_AND_FRONTEND_HANDOFF.md`.
+schemaVersion 2. Pinned A 51ac3e5d now submits schema 2 for mint, refresh and
+reissue. All ten unchanged trust checks and all ten real financial integration
+cases pass, including two actual Groth16 proofs and local consumer transactions.
+The prior v0.1 financial report remains historical; current public evidence is
+`contracts/reports/v02-backend-a-local.json`. The schema-1 negative regression
+explicitly loads unchanged historical A b43b1708 into its separate verified cache.
+Never rewrite A's cached blobs or override its schema to pass.
+Current validation: `docs/review/BACKEND_B_A_SCHEMA2_VALIDATION.md`.
+Frontend connection: `contracts/integration/FRONTEND_LOCAL_HANDOFF.md`.
 
 This harness executes A's published financial pipeline unchanged, in process,
 against B's actual deployment and real Groth16 engine. It uses A's synthetic

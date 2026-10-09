@@ -1,0 +1,257 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "backendASourceExecuted": true,
+  "backendALiveServiceConnected": false,
+  "protocolApproved": false,
+  "sourceManifest": {
+    "repository": "Manas150706/HACKBUDS",
+    "commit": "51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c",
+    "files": [
+      {
+        "path": "backend/src/evidence/attestation-service.ts",
+        "gitBlob": "6704c302c949d598c7c026a387333330a14dd838"
+      },
+      {
+        "path": "backend/src/evidence/calendar.ts",
+        "gitBlob": "ebfa0d09a00faed0ea4fe601656bd456d13ef007"
+      },
+      {
+        "path": "backend/src/evidence/classifier.ts",
+        "gitBlob": "0cca6bcbf7bdc5fb521963c37ae0df0b7ee7d5b6"
+      },
+      {
+        "path": "backend/src/evidence/commitment-adapter.ts",
+        "gitBlob": "c643afcf6b235432fbcb300a37007eee52ea1b36"
+      },
+      {
+        "path": "backend/src/evidence/directory/registry.ts",
+        "gitBlob": "070c6434b7bc620fee9176e5b468174b7b140b37"
+      },
+      {
+        "path": "backend/src/evidence/directory/types.ts",
+        "gitBlob": "379d0a494ad2567a8a0d3ab3735fdb3a0daf1b56"
+      },
+      {
+        "path": "backend/src/evidence/fip-verifier.ts",
+        "gitBlob": "19b277c72a2570644ed32b7f0f0b59f47622d1e9"
+      },
+      {
+        "path": "backend/src/evidence/normalizer.ts",
+        "gitBlob": "6396bfba548d8ba66818f3212a5e93ac665f60df"
+      },
+      {
+        "path": "backend/src/evidence/passport-client.ts",
+        "gitBlob": "47a96dbe5d977bc1fa912760b322fadc86984c82"
+      },
+      {
+        "path": "backend/src/evidence/poseidon-adapter.ts",
+        "gitBlob": "35d3ed8ca0d84926c506befee53e17b2697e4fa4"
+      },
+      {
+        "path": "backend/src/evidence/prover-boundary.ts",
+        "gitBlob": "bd19c895750c49e6aaf85ae1b62ee235c669eee0"
+      },
+      {
+        "path": "backend/src/evidence/snapshot-builder.ts",
+        "gitBlob": "37dab3b4b816378496f28ec575e00516fffb8eea"
+      },
+      {
+        "path": "backend/src/fip/consent-service.ts",
+        "gitBlob": "025fae3777dc3a7c68758633bd7fd8635be025bf"
+      },
+      {
+        "path": "backend/src/fip/crypto.ts",
+        "gitBlob": "2c7bc52c381676b9da7915ac6fa1d99c41b24055"
+      },
+      {
+        "path": "backend/src/fip/fip-service.ts",
+        "gitBlob": "b5a3ad2ba916e4280d1db46422ac677dc5c43c49"
+      },
+      {
+        "path": "backend/src/fip/personas/arjun-mehta.ts",
+        "gitBlob": "f3abec2da2982e19e069e74d7170d39aa84a5148"
+      },
+      {
+        "path": "backend/src/fip/personas/farhan-swiggy-zomato.ts",
+        "gitBlob": "905aa624fe11f9b376cfde3553f9979330f54e1f"
+      },
+      {
+        "path": "backend/src/fip/personas/imran-cab.ts",
+        "gitBlob": "bc4af3084af75fa3a50f887fa549cd6a488da69b"
+      },
+      {
+        "path": "backend/src/fip/personas/index.ts",
+        "gitBlob": "c7100dce36fcdec7ad7e08951824aa0a592137aa"
+      },
+      {
+        "path": "backend/src/fip/personas/manjunath-urban-company.ts",
+        "gitBlob": "a49fd1b84881ce53845259c3e8f8d1aa74d1857a"
+      },
+      {
+        "path": "backend/src/fip/personas/persona-types.ts",
+        "gitBlob": "c0b894b10e8d161567579a424ff8038b3f0adeb9"
+      },
+      {
+        "path": "backend/src/fip/personas/ramesh-swiggy.ts",
+        "gitBlob": "f1e4d81bb29b2cd4cec7808853b54827aabaadd9"
+      },
+      {
+        "path": "backend/src/fip/personas/suresh-uber-ola.ts",
+        "gitBlob": "31a016b7694b7305471a462eec70aedd173a9a09"
+      },
+      {
+        "path": "backend/src/fip/personas/venkatesh-porter.ts",
+        "gitBlob": "481efda3a8540abffba1ebd249ae99826f99250a"
+      },
+      {
+        "path": "backend/src/fip/storage.ts",
+        "gitBlob": "d3fa81ad5b6b4a77d99d9fee29637c010ed0eafb"
+      },
+      {
+        "path": "backend/src/fip/types.ts",
+        "gitBlob": "d594c1dec25f131ade30317ad9d38fe3a78ca060"
+      },
+      {
+        "path": "backend/src/identity/aadhaar/mock-verifier.ts",
+        "gitBlob": "7f5a4436ebe744299d83ae551a07385f0e146e40"
+      },
+      {
+        "path": "backend/src/identity/aadhaar/real-verifier.ts",
+        "gitBlob": "e21a917340c01eb8802a7eb786b431da547b668a"
+      },
+      {
+        "path": "backend/src/identity/aadhaar/types.ts",
+        "gitBlob": "8a3942cfe37eb96ba95239b9244b6632d9522f0a"
+      },
+      {
+        "path": "backend/src/identity/mock-idp.ts",
+        "gitBlob": "402123f9c2aeca6dc66d88647ddb252f3a6eea36"
+      },
+      {
+        "path": "backend/src/identity/onboarding/attestation-adapter.ts",
+        "gitBlob": "3f3f91e8a32db888aa2b6239ccabe7e5a174d58c"
+      },
+      {
+        "path": "backend/src/identity/types.ts",
+        "gitBlob": "7c64b47e9d2857c07370c02ec135230d7a1e5290"
+      },
+      {
+        "path": "backend/src/identity/wallet-auth.ts",
+        "gitBlob": "f04132ce4d3d125d174965c78c9ff1350c58358e"
+      },
+      {
+        "path": "shared/proposal/canonical-evidence-schema.ts",
+        "gitBlob": "eaf215f39c36660ea67d1aab76c958357f544628"
+      },
+      {
+        "path": "shared/proposal/field-mappings.ts",
+        "gitBlob": "9fd810b422ba206bc3a831052f4e0d9780a6eebb"
+      },
+      {
+        "path": "shared/proposal/poseidon5.ts",
+        "gitBlob": "0403e35e5b5236a3c431fa2ad47ea990b6deb45b"
+      }
+    ],
+    "mode": "verified Git blobs; TypeScript transpile only; not an upstream full build/test claim"
+  },
+  "passed": 10,
+  "failed": 0,
+  "testNames": [
+    "pinned actual A consent/FIP/Poseidon orchestration mints real passport through B transport",
+    "A rejects unauthenticated FIP retrieval, tampered signed provenance and mismatched bank owner",
+    "missing B approval and unsigned policy changes cannot invoke A reconstruction",
+    "A reconstruction requires its own signed action and rejects replay without replacing B approval",
+    "altered authenticated A snapshot fails B commitment check before real proving",
+    "two fresh A reconstructions produce actual Groth16 proofs accepted by deployed Solidity",
+    "actual welfare claim, 100 MockUSDC borrowing and exact repayment preserve request replay state",
+    "stale evidence and expired policy reject before authenticated reconstruction",
+    "A refresh uses actual attester transaction and invalidates prior B approval/proof",
+    "revoked A consent fails private reconstruction; public transport errors remain errors"
+  ],
+  "realProofs": 2,
+  "proofMetrics": [
+    {
+      "seconds": 22.65487389999999,
+      "workerMaxRssBytes": 484745216,
+      "workerRssBytes": 393826304
+    },
+    {
+      "seconds": 33.3295588,
+      "workerMaxRssBytes": 425078784,
+      "workerRssBytes": 395464704
+    }
+  ],
+  "reconstructionCalls": 7,
+  "elapsedSeconds": 203.8646464,
+  "addresses": {
+    "passport": "0x0bd08518E74c06e859DEdb3272cB68CBd4360AFb",
+    "math": "0x4d5F1Bb7baD86CcB771a6Ed4c2A351FEa160f397",
+    "token": "0xF44EfFdB21A50dBf955af7FF746A75f2A34e8242",
+    "gate": "0x556b6Bb926F0546A4e0b09D2310A6cEb0B9d2634",
+    "welfare": "0x2EC940C86D0aFB6a7A063E14E23039CD2397FA25",
+    "loan": "0x8e3B01C5fB4561E1883337Dd67686bDd662B9d20"
+  },
+  "passport": {
+    "passportId": "2",
+    "status": "ACTIVE",
+    "holderWallet": "0xbb807c3dF591fB082f5A2Fb6bee21ad6D2192baD",
+    "identityNullifierHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "evidenceCommitment": "21786729156080769481523843191292304053958908682497269527821630021843697509686",
+    "evidenceVersion": "2",
+    "evidenceUpdatedAt": "1791504127",
+    "issuedAt": "1791504002",
+    "schemaVersion": "2",
+    "evidenceProvider": "0x4d4f434b5f41504e415f42414e4b5f4649505f30310000000000000000000000",
+    "supersedes": "0",
+    "sourceDirectoryVersion": "3"
+  },
+  "finalIdentityState": {
+    "identity": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "claimed": true,
+    "principal": "0"
+  },
+  "transactions": [
+    {
+      "action": "mint",
+      "hash": "0xaf3068b55a264c6e5aebc63f913857a6fd211959b4834d102fb4ad03e0efe8aa",
+      "status": 1,
+      "blockNumber": 10
+    },
+    {
+      "action": "refresh",
+      "hash": "0x3193a9e0b16fed5fb62fd045fede25aaeaebdbd7bfec017952193cd633542cc7",
+      "status": 1,
+      "blockNumber": 15
+    },
+    {
+      "action": "claim",
+      "hash": "0x340362173491a3eb4633c81a9b0945088c1447e232ef797309505e298ee712e8",
+      "blockNumber": 11,
+      "status": 1,
+      "gasUsed": "503309"
+    },
+    {
+      "action": "borrow",
+      "hash": "0xc8197c755c2f4f499a659696b1c00f1401b2853d3ceae368e075d6cc004a0f75",
+      "blockNumber": 12,
+      "status": 1,
+      "gasUsed": "521116"
+    },
+    {
+      "action": "approve repayment",
+      "hash": "0x7c728b1a49cb966f24f060f23ec35f05e2859226b83f22aee807cd81992947bd",
+      "blockNumber": 13,
+      "status": 1,
+      "gasUsed": "45921"
+    },
+    {
+      "action": "repay",
+      "hash": "0x0326c07a080d50793491c41bb840b2796e7b341c53b6e43bb72b4988748170a6",
+      "blockNumber": 14,
+      "status": 1,
+      "gasUsed": "69971"
+    }
+  ],
+  "cleanupVerified": true
+}
