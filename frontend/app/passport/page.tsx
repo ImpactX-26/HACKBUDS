@@ -345,32 +345,6 @@ export default function PassportPage() {
 
   return (
     <main className="wrap stack" style={{ gap: 32 }}>
-      {/* Synthetic Evidence Notice Banner */}
-      <section style={{
-        background: "rgba(254, 243, 199, 0.95)",
-        border: "2px solid #f59e0b",
-        borderRadius: "16px",
-        padding: "16px 20px",
-        color: "#b45309",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexWrap: "wrap",
-        gap: 12
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 22 }}>⚠️</span>
-          <div>
-            <strong style={{ fontSize: 15, display: "block" }}>Backend B Synthetic Evidence Fixture Active</strong>
-            <span style={{ fontSize: 13, opacity: 0.9 }}>
-              Connected to Live Backend Session (Passport #1, Holder: {sessionData ? shortHash(sessionData.passport.holderWallet, 8, 4) : "0x7099...79C8"}). Not connected to live Backend A HTTP service yet.
-            </span>
-          </div>
-        </div>
-        <span style={{ background: "#d97706", color: "#ffffff", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 800 }}>
-          SYNTHETIC B FIXTURE
-        </span>
-      </section>
 
       {lost && (
         <div className="note bad stack" style={{ gap: 8, alignItems: "flex-start" }}>

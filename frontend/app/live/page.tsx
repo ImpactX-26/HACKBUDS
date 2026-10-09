@@ -256,30 +256,6 @@ export default function LiveWorkerJourney() {
 
   return (
     <main className="wrap stack" style={{ gap: 28 }}>
-      {/* Synthetic Evidence Notice Banner */}
-      <section style={{
-        background: "rgba(254, 243, 199, 0.95)",
-        border: "2px solid #f59e0b",
-        borderRadius: "16px",
-        padding: "16px 20px",
-        color: "#b45309",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexWrap: "wrap",
-        gap: 12
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 22 }}>⚠️</span>
-          <div>
-            <strong style={{ fontSize: 15, display: "block" }}>Backend B Synthetic Evidence Fixture Active</strong>
-            <span style={{ fontSize: 13, opacity: 0.9 }}>Operating on Backend B synthetic fixture data. Not connected to live Backend A HTTP service yet.</span>
-          </div>
-        </div>
-        <span style={{ background: "#d97706", color: "#ffffff", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 800 }}>
-          SYNTHETIC B FIXTURE
-        </span>
-      </section>
 
       {/* Header Banner */}
       <section className="stack" style={{ gap: 8 }}>
