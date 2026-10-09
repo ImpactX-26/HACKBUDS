@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "c765b2d7f014d702af3c8ee0d0e391055e05d840",
+  "realAadhaarProofs": 0,
+  "realAadhaarIntegrationVerified": false,
+  "passed": 7,
+  "failed": 3,
+  "passedTests": [
+    "default real verifier rejects staging root before cryptographic work",
+    "real and synthetic request modes cannot substitute for each other",
+    "wallet-only and other-session signals fail even with explicit staging opt-in",
+    "all five Aadhaar duplicate signals and wrong vector length reject before Groth16",
+    "canonical staging payload still fails closed without a verification key",
+    "actual signed Mock IDP assertion stays synthetic and altered provider is rejected",
+    "upstream bridge refuses real identities, unknown modes and revoked records"
+  ],
+  "failedTests": [
+    "staging root cannot be promoted by production configuration without staging opt-in",
+    "staging-only root and arbitrary vkey must not advertise genuine VERIFIED status",
+    "shared evidence field boundary must use the Groth16 scalar modulus, not BN254 base modulus"
+  ],
+  "scope": "Upstream mode/pre-cryptographic guards and configuration classification; no real Aadhaar artifacts or credentials"
+}

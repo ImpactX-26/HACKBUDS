@@ -1,0 +1,6 @@
+{
+  "name": "gigvault-provisional-shared-crypto",
+  "private": true,
+  "type": "module",
+  "peerDependencies": { "circomlibjs": "0.1.7" }
+}

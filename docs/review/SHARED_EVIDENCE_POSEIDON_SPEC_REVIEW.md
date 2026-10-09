@@ -1,6 +1,11 @@
 # GigVault — Shared Evidence Encoding & Poseidon Interface
 
-**Status: REVIEW DRAFT — locked principles + explicitly PROPOSED wire details.**  
+**Status: REVIEW DRAFT — locked principles + explicitly PROPOSED wire details.**
+
+2026-10-09 correction approved by the user: evidence uses BN254 **Fr** and provisional
+commitment profile `gv-poseidon-hash-only-0.2.0`. Passport `schemaVersion=2` is approved
+for v0.2; B's v0.2 prover/client reject schema 1. The previous decimal value below
+was Fq mislabeled as Fr. This approval does not freeze other REVIEW tags/encodings.
 **Audience:** Backend A (Mock FIP / attestation), Backend B (Circom / Solidity), frontend integration reviewer.  
 **Scope:** Canonical private EvidenceSnapshot, numeric encodings, deterministic time buckets, hierarchical Poseidon tree construction, test fixtures, and integration checks.  
 **Important:** This is **not** evidence that any code has been implemented or validated. Newly proposed constants/encodings below are **not locked** merely because they appear here. The original three team reference files are unchanged.
@@ -54,7 +59,7 @@ No raw transaction list, score, worker cadence label, consumer-specific rules, p
 **PROPOSED — REVIEW NEEDED:** Every field element must be an integer `0 <= value < r`, where the BN254 scalar-field modulus is:
 
 ```text
-r = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+r = 21888242871839275222246405745257275088548364400416034343698204186575808495617
 ```
 
 Do not silently reduce arbitrary inputs modulo `r` **inside the circuit**. Only explicitly specified off-chain digest-to-field operations may reduce; other scalar fields should undergo strict range validation and fail on overflow or negative values. Money should additionally undergo a chosen bounded-bit range check to avoid modular wraparound in threshold comparisons (**bound not yet selected**).

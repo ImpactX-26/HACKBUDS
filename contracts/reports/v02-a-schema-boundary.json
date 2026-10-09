@@ -1,0 +1,23 @@
+{
+  "sourceCommit": "b43b17084aea375a0c4bc59c53349d9f6a170396",
+  "localOnly": true,
+  "syntheticOnly": true,
+  "passed": 2,
+  "realAadhaarProofs": 0,
+  "realGroth16Proofs": 0,
+  "aPassportId": "2",
+  "aSchemaVersion": "1",
+  "requiredSchemaVersion": "2",
+  "mintTransactions": [
+    {
+      "action": "mint",
+      "hash": "0x1ea2db983a1e9d29aa501dfe3cc633361e605c8d227908598bfb61b5faebce2c",
+      "status": 1,
+      "blockNumber": 10
+    }
+  ],
+  "reconstructionCalls": 0,
+  "rejection": "EVIDENCE_SCHEMA_UNSUPPORTED",
+  "aToBV02Completed": false,
+  "elapsedSeconds": 70.5007469
+}

@@ -1,0 +1,20 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "realProofs": 2,
+  "proofMetrics": [
+    {
+      "seconds": 19.105716499999996,
+      "workerMaxRssBytes": 423399424,
+      "workerRssBytes": 393162752
+    },
+    {
+      "seconds": 19.459765199999996,
+      "workerMaxRssBytes": 415264768,
+      "workerRssBytes": 393576448
+    }
+  ],
+  "elapsedSeconds": 134.7409899,
+  "passed": true,
+  "cleanupVerified": true
+}

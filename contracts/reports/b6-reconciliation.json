@@ -1,0 +1,156 @@
+{
+  "backendACommit": "c765b2d7f014d702af3c8ee0d0e391055e05d840",
+  "backendBPublishedCommit": "f7d80c37b5af9b6907aeef7f566c95162dbb5ca9",
+  "verifiedSourceBlobs": 36,
+  "compatibleSyntheticFlow": true,
+  "securityReconciliationPassed": false,
+  "committed": false,
+  "pushed": false,
+  "additionalSpendINR": 0,
+  "contractProverDeployment": {
+    "passed": 72,
+    "failed": 0,
+    "durationSeconds": 86.667076
+  },
+  "aToB": {
+    "passed": 10,
+    "failed": 0,
+    "realProofs": 2,
+    "durationSeconds": 166.8960297,
+    "proofMetrics": [
+      {
+        "seconds": 20.383754,
+        "workerMaxRssBytes": 412135424,
+        "workerRssBytes": 393732096
+      },
+      {
+        "seconds": 19.2516866,
+        "workerMaxRssBytes": 414482432,
+        "workerRssBytes": 400887808
+      }
+    ],
+    "transactions": [
+      {
+        "action": "mint",
+        "hash": "0x735d980ea43b0b4bb3f647cd4977fea20051f84715d0d02ab50cd175f4ccc60d",
+        "status": 1,
+        "blockNumber": 10
+      },
+      {
+        "action": "refresh",
+        "hash": "0xfd72b6fa7b5edae568986a1985d9dde8ecff0b4423298f94b17e5c283792c620",
+        "status": 1,
+        "blockNumber": 15
+      },
+      {
+        "action": "claim",
+        "hash": "0x4ecf8eb3089158136dd2c91fe39989fa01170f64ef0967ba5b1965de6721c5e1",
+        "blockNumber": 11,
+        "status": 1,
+        "gasUsed": "503285"
+      },
+      {
+        "action": "borrow",
+        "hash": "0x1f9c1159cf06725fa2d8946e8017cc799aa953d69c1743646172270652f59860",
+        "blockNumber": 12,
+        "status": 1,
+        "gasUsed": "521104"
+      },
+      {
+        "action": "approve repayment",
+        "hash": "0xed8c7adafb8404af8b801fe4019ab97c0926ad7d9d95e5f8837fa898120b61f4",
+        "blockNumber": 13,
+        "status": 1,
+        "gasUsed": "45921"
+      },
+      {
+        "action": "repay",
+        "hash": "0xa573388bfb78387d05c24d93b5cba73ecc940cf490de818e9e3c2a09bb38de56",
+        "blockNumber": 14,
+        "status": 1,
+        "gasUsed": "69971"
+      }
+    ],
+    "cleanupVerified": true
+  },
+  "b5": {
+    "passed": 14,
+    "failed": 0,
+    "realProofs": 8,
+    "durationSeconds": 248.7306969,
+    "inProcessMetrics": [
+      {
+        "seconds": 19.001031100000006,
+        "workerMaxRssBytes": 423903232,
+        "workerRssBytes": 392953856
+      },
+      {
+        "seconds": 19.2291747,
+        "workerMaxRssBytes": 424742912,
+        "workerRssBytes": 392310784
+      },
+      {
+        "seconds": 18.857194499999984,
+        "workerMaxRssBytes": 393093120,
+        "workerRssBytes": 393097216
+      },
+      {
+        "seconds": 18.66595060000001,
+        "workerMaxRssBytes": 421961728,
+        "workerRssBytes": 392855552
+      },
+      {
+        "seconds": 18.622228700000008,
+        "workerMaxRssBytes": 414224384,
+        "workerRssBytes": 392822784
+      },
+      {
+        "seconds": 18.18052720000001,
+        "workerMaxRssBytes": 414371840,
+        "workerRssBytes": 392810496
+      }
+    ],
+    "ipcMetrics": [
+      {
+        "seconds": 18.79512419999999,
+        "workerMaxRssBytes": 414482432,
+        "workerRssBytes": 391798784
+      },
+      {
+        "seconds": 19.1077509,
+        "workerMaxRssBytes": 422727680,
+        "workerRssBytes": 392785920
+      }
+    ],
+    "cleanupVerified": true
+  },
+  "trust": {
+    "sourceCommit": "c765b2d7f014d702af3c8ee0d0e391055e05d840",
+    "realAadhaarProofs": 0,
+    "realAadhaarIntegrationVerified": false,
+    "passed": 7,
+    "failed": 3,
+    "passedTests": [
+      "default real verifier rejects staging root before cryptographic work",
+      "real and synthetic request modes cannot substitute for each other",
+      "wallet-only and other-session signals fail even with explicit staging opt-in",
+      "all five Aadhaar duplicate signals and wrong vector length reject before Groth16",
+      "canonical staging payload still fails closed without a verification key",
+      "actual signed Mock IDP assertion stays synthetic and altered provider is rejected",
+      "upstream bridge refuses real identities, unknown modes and revoked records"
+    ],
+    "failedTests": [
+      "staging root cannot be promoted by production configuration without staging opt-in",
+      "staging-only root and arbitrary vkey must not advertise genuine VERIFIED status",
+      "shared evidence field boundary must use the Groth16 scalar modulus, not BN254 base modulus"
+    ],
+    "scope": "Upstream mode/pre-cryptographic guards and configuration classification; no real Aadhaar artifacts or credentials"
+  },
+  "strictTypechecksPassed": 2,
+  "nodeCasesPassed": 103,
+  "nodeCasesFailed": 3,
+  "totalRealEligibilityProofs": 10,
+  "realAadhaarProofs": 0,
+  "decisionMatrix": "docs/review/BACKEND_B_B6_COMPATIBILITY_RECONCILIATION.md",
+  "interruptedSandboxAttemptsExcluded": true
+}

@@ -1,0 +1,90 @@
+{
+  "profile": "gv-poseidon-hash-only-0.2.0",
+  "schemaVersion": 2,
+  "backendBIndependentValidationPassed": true,
+  "distinctPassingBCases": 206,
+  "currentBAcceptanceCases": 149,
+  "historicalReviewCases": 57,
+  "typescriptConsumerChecksPassed": 2,
+  "suites": {
+    "standardCircuitTests": {"passed":64,"failed":0,"seconds":8.2900677},
+    "eligibilityWitnessTests": {"passed":22,"failed":0,"seconds":8.8770751},
+    "historicalFinalReview": {"passed":29,"failed":0},
+    "contractAndProverRegressionsDistinct": {"passed":76,"failed":0},
+    "trustedProverFinal": {"passed":42,"failed":0,"seconds":3.911012}
+  },
+  "backendACommit": "c765b2d7f014d702af3c8ee0d0e391055e05d840",
+  "aToBV02Completed": false,
+  "upstreamTrust": {
+    "passed": 7,
+    "failed": 3,
+    "assertionsUnchanged": true
+  },
+  "historicalFixtures": [
+    {
+      "path": "circuits/fixtures/provisional-vectors.json",
+      "unchanged": true,
+      "sha256": "7c7cd815f989d65170af97e69602f6951090f08104c231e4eac35b077fb4b434"
+    },
+    {
+      "path": "circuits/fixtures/backend-a-gate1-vectors.json",
+      "unchanged": true,
+      "sha256": "66e691f9e0915f8ccf8f6a284b40a3b582c058964adc11db984e66bd96ddca24"
+    },
+    {
+      "path": "circuits/fixtures/backend-a-e991-vectors.json",
+      "unchanged": true,
+      "sha256": "1202a739b0ff0d24417bb453383d9750fde58e63feb568535fca79f9f6b9a270"
+    }
+  ],
+  "b5": {
+    "passed": 15,
+    "failed": 0,
+    "realProofs": 8,
+    "seconds": 250.4968873,
+    "proofMetrics": [
+      {
+        "seconds": 18.7983214,
+        "workerMaxRssBytes": 417030144,
+        "workerRssBytes": 393240576
+      },
+      {
+        "seconds": 19.777031799999996,
+        "workerMaxRssBytes": 422547456,
+        "workerRssBytes": 392441856
+      },
+      {
+        "seconds": 20.126342599999976,
+        "workerMaxRssBytes": 437743616,
+        "workerRssBytes": 394768384
+      },
+      {
+        "seconds": 19.868294200000005,
+        "workerMaxRssBytes": 422363136,
+        "workerRssBytes": 392810496
+      },
+      {
+        "seconds": 19.151629799999995,
+        "workerMaxRssBytes": 435396608,
+        "workerRssBytes": 393715712
+      },
+      {
+        "seconds": 19.004771800000018,
+        "workerMaxRssBytes": 422526976,
+        "workerRssBytes": 392261632
+      },
+      {
+        "seconds": 19.105716499999996,
+        "workerMaxRssBytes": 423399424,
+        "workerRssBytes": 393162752
+      },
+      {
+        "seconds": 19.459765199999996,
+        "workerMaxRssBytes": 415264768,
+        "workerRssBytes": 393576448
+      }
+    ],
+    "cleanup": true
+  },
+  "additionalSpendINR": 0
+}

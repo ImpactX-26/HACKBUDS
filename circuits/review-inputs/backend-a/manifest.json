@@ -1,0 +1,91 @@
+{
+  "status": "PROVISIONAL PUBLIC SYNTHETIC REVIEW INPUTS; SOURCES UNMODIFIED",
+  "repository": "Manas150706/HACKBUDS",
+  "commit": "8c5042bd37d6a74bb3c765f58eb6ac855caa1b6f",
+  "files": [
+    {
+      "upstreamPath": "shared/proposal/canonical-evidence-schema.ts",
+      "localPath": "source/shared/proposal/canonical-evidence-schema.ts.json",
+      "gitBlobSha": "f9c18dd694c02d6106840516e950dcb047c4865c",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/normalizer.ts",
+      "localPath": "source/backend/src/evidence/normalizer.ts.json",
+      "gitBlobSha": "d977d818d14a2811aacd260f76f22da3aaf89e44",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/calendar.ts",
+      "localPath": "source/backend/src/evidence/calendar.ts.json",
+      "gitBlobSha": "d53cad106fdecf7d88b8cf63ceb80bbe25526cdb",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/classifier.ts",
+      "localPath": "source/backend/src/evidence/classifier.ts.json",
+      "gitBlobSha": "7e71c26899c3af9749c4d7a92154830d55787059",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/snapshot-builder.ts",
+      "localPath": "source/backend/src/evidence/snapshot-builder.ts.json",
+      "gitBlobSha": "4bcebffc7a2216eccdf370141e42118e4ac0442a",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/directory/registry.ts",
+      "localPath": "source/backend/src/evidence/directory/registry.ts.json",
+      "gitBlobSha": "01a978cc63560d9bb33c952e6f7fd54e1a5b7c8a",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/directory/types.ts",
+      "localPath": "source/backend/src/evidence/directory/types.ts.json",
+      "gitBlobSha": "379d0a494ad2567a8a0d3ab3735fdb3a0daf1b56",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/fip/types.ts",
+      "localPath": "source/backend/src/fip/types.ts.json",
+      "gitBlobSha": "27ceba7fe72d84cb795aedf42dd17dca45ae9082",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/fip/crypto.ts",
+      "localPath": "source/backend/src/fip/crypto.ts.json",
+      "gitBlobSha": "2c7bc52c381676b9da7915ac6fa1d99c41b24055",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/fip-verifier.ts",
+      "localPath": "source/backend/src/evidence/fip-verifier.ts.json",
+      "gitBlobSha": "2b40279cc90ee45d409b8d467d7eb268979cf811",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/fip/consent-service.ts",
+      "localPath": "source/backend/src/fip/consent-service.ts.json",
+      "gitBlobSha": "275e8732ea54a0d9b317fed828ccf5fc7615fbc0",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/fip/fip-service.ts",
+      "localPath": "source/backend/src/fip/fip-service.ts.json",
+      "gitBlobSha": "53b57023e5750f30ce89f7fa8798e82cbf6d3cc3",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "backend/src/evidence/attestation-service.ts",
+      "localPath": "source/backend/src/evidence/attestation-service.ts.json",
+      "gitBlobSha": "727d381572b11b2dce580b65113591758c6f6859",
+      "endsWithNewline": true
+    },
+    {
+      "upstreamPath": "shared/proposal/typed-snapshot-fixture.json",
+      "localPath": "typed-snapshot-fixture.json",
+      "gitBlobSha": "b3b9011686c4fbfe8014cc0e88a43b9c2cbac70b",
+      "endsWithNewline": false
+    }
+  ]
+}

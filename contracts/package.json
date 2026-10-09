@@ -1,0 +1,28 @@
+{
+  "name": "gigvault-passport-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "score:test": "node --test test/gig-score.test.mjs",
+    "test": "node --test test/GigPassport.test.mjs",
+    "auth:test": "node --test test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs",
+    "prover:test": "node --test test/trusted-prover-b4.test.mjs",
+    "prover:types": "node ../circuits/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/trusted-prover-types.mts",
+    "deployment:test": "node --test test/local-deployment-b4.test.mjs",
+    "local:start": "node local/start.mjs",
+    "local:demo": "node local/demo.mjs",
+    "integration:test": "node --test test/integration-b5.test.mjs test/session-ipc-b5.test.mjs",
+    "integration:types": "node ../circuits/node_modules/typescript/bin/tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext test/integration-b5-types.mts",
+    "integration:a:prepare": "node integration/backend-a-source.mjs",
+    "integration:a:test": "node --test test/backend-a-b6.test.mjs",
+    "integration:a:demo": "node --test test/backend-a-b6.test.mjs",
+    "integration:a:trust": "node --test test/backend-a-trust-reconciliation.test.mjs"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "5.4.0",
+    "ethers": "6.15.0",
+    "ganache": "7.9.2",
+    "solc": "0.8.30"
+  }
+}

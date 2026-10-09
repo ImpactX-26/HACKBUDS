@@ -1,0 +1,13 @@
+node_modules/
+.tools/
+build/
+dist/
+.scratch/
+*.wtns
+*.zkey
+*.ptau
+witness*.json
+proof*.json
+public*.json
+.env
+.env.*

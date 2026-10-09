@@ -1,0 +1,3519 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "backendAConnected": false,
+  "passed": 14,
+  "failed": 0,
+  "testNames": [
+    "persistent session seeds ACTIVE passport and exports public versioned bundle",
+    "public SDK works from exported bundle without a private prover",
+    "v0.2 client refuses an actual schema 1 passport before private access",
+    "explicit policy signing and worker approval are separate; unauthorized proofs do not read evidence",
+    "expired requests and stale evidence have distinct public errors before private access",
+    "authenticated reconstruction hook rejects altered evidence without private error disclosure",
+    "callable adapter produces two real proofs and separate Verify results",
+    "modified signals, wrong setup, weaker policy and consumer substitution reject",
+    "claim and borrow adapters execute actual local transactions for approved worker",
+    "replay and exact repayment errors preserve debt; successful repayment is a real transaction",
+    "evidence refresh invalidates old approval and old proof; genuine FAIL remains verifiable",
+    "fresh approved request can borrow after repayment",
+    "replacement keeps lifetime claim and debt; new valid proofs cannot reset identity state",
+    "shutdown deletes the session bundle and rejects later calls"
+  ],
+  "realProofs": 6,
+  "proofMetrics": [
+    {
+      "seconds": 18.7983214,
+      "workerMaxRssBytes": 417030144,
+      "workerRssBytes": 393240576
+    },
+    {
+      "seconds": 19.777031799999996,
+      "workerMaxRssBytes": 422547456,
+      "workerRssBytes": 392441856
+    },
+    {
+      "seconds": 20.126342599999976,
+      "workerMaxRssBytes": 437743616,
+      "workerRssBytes": 394768384
+    },
+    {
+      "seconds": 19.868294200000005,
+      "workerMaxRssBytes": 422363136,
+      "workerRssBytes": 392810496
+    },
+    {
+      "seconds": 19.151629799999995,
+      "workerMaxRssBytes": 435396608,
+      "workerRssBytes": 393715712
+    },
+    {
+      "seconds": 19.004771800000018,
+      "workerMaxRssBytes": 422526976,
+      "workerRssBytes": 392261632
+    }
+  ],
+  "elapsedSeconds": 248.91923440000002,
+  "bundle": {
+    "protocolVersion": "gv-local-prover-b4/1",
+    "eligibilityProfile": "gv-eligibility-0.2-provisional",
+    "commitmentProfile": "gv-poseidon-hash-only-0.2.0",
+    "evidenceSchemaVersion": "2",
+    "localOnly": true,
+    "productionReady": false,
+    "chainId": 1337,
+    "rpcUrl": "http://127.0.0.1:60171",
+    "setupId": "c6cd80fdf1c94a68e3785c0e86344a3f9b9c7b177a1780ba9282354057af33c5",
+    "setupDigests": {
+      "r1cs": "24c6bd72250c00721a5bae7250a87c7e904fdcc02799a1cef37bf94aee41133a",
+      "wasm": "d71a4f4a5fdf7d77d4f04d8bc95940dc3650e942fe948c8403115f1f586291a2",
+      "calculator": "cc2d37b2cff2a589dd86f8636f1a1dc9fe4a854550b021aa0cea2e235d14e942",
+      "zkey": "21c61081676adaf961ac22d24534a08b1c9edff03861f1a3ade7df1d8074c0bb",
+      "vk": "8ab9ad217507361e8f1ec44644465b667f2f4c90be6ca4c9077e3bdeeb2a73a6",
+      "verifier": "7fe6e6726ec90dd327f54b1c4f6b35ad228a53f94b027b9a95f6962d6d56eab6"
+    },
+    "contracts": {
+      "passport": {
+        "address": "0xe6fe5b9e89Fd283Cb3D5D1dcAd2B714ecd6E64be",
+        "abi": [
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "admin",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "attester",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+          },
+          {
+            "inputs": [],
+            "name": "AccessControlBadConfirmation",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "neededRole",
+                "type": "bytes32"
+              }
+            ],
+            "name": "AccessControlUnauthorizedAccount",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ActivePassportExists",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "CommitmentUnchanged",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721IncorrectOwner",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "ERC721InsufficientApproval",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "approver",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721InvalidApprover",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721InvalidOperator",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721InvalidOwner",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "receiver",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721InvalidReceiver",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              }
+            ],
+            "name": "ERC721InvalidSender",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "ERC721NonexistentToken",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "EvidenceTimestampRegressed",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "expected",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "actual",
+                "type": "uint256"
+              }
+            ],
+            "name": "ExpectedIdMismatch",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidInput",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "NonTransferable",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              }
+            ],
+            "name": "PassportNotActive",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ReissueNotAuthorized",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ReissueRequiresRevokedPassport",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "RolesMustBeSeparate",
+            "type": "error"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "approved",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "Approval",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+              },
+              {
+                "indexed": false,
+                "internalType": "bool",
+                "name": "approved",
+                "type": "bool"
+              }
+            ],
+            "name": "ApprovalForAll",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceCommitment",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceUpdatedAt",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "sourceDirectoryVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "schemaVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "bytes32",
+                "name": "evidenceProvider",
+                "type": "bytes32"
+              }
+            ],
+            "name": "EvidenceRefreshed",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identityNullifierHash",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "holderWallet",
+                "type": "address"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceCommitment",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "evidenceUpdatedAt",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "sourceDirectoryVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "schemaVersion",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "bytes32",
+                "name": "evidenceProvider",
+                "type": "bytes32"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "supersedes",
+                "type": "uint256"
+              }
+            ],
+            "name": "PassportIssued",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identityNullifierHash",
+                "type": "bytes32"
+              },
+              {
+                "indexed": false,
+                "internalType": "string",
+                "name": "reason",
+                "type": "string"
+              }
+            ],
+            "name": "PassportRevoked",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identityNullifierHash",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "revokedPassportId",
+                "type": "uint256"
+              }
+            ],
+            "name": "ReissueAuthorized",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "previousAdminRole",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "newAdminRole",
+                "type": "bytes32"
+              }
+            ],
+            "name": "RoleAdminChanged",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              }
+            ],
+            "name": "RoleGranted",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              }
+            ],
+            "name": "RoleRevoked",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "Transfer",
+            "type": "event"
+          },
+          {
+            "inputs": [],
+            "name": "ADMIN_ROLE",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "ATTESTER_ROLE",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "DEFAULT_ADMIN_ROLE",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "activePassportByIdentity",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "name": "approve",
+            "outputs": [],
+            "stateMutability": "pure",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              }
+            ],
+            "name": "authorizeReissue",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              }
+            ],
+            "name": "balanceOf",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "getApproved",
+            "outputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              }
+            ],
+            "name": "getPassport",
+            "outputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "holderWallet",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "identityNullifierHash",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "evidenceCommitment",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "evidenceVersion",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "evidenceUpdatedAt",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "issuedAt",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "enum GigPassport.Status",
+                    "name": "status",
+                    "type": "uint8"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "schemaVersion",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "evidenceProvider",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "supersedes",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct GigPassport.Passport",
+                "name": "",
+                "type": "tuple"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              }
+            ],
+            "name": "getRoleAdmin",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              }
+            ],
+            "name": "grantRole",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              }
+            ],
+            "name": "hasRole",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "operator",
+                "type": "address"
+              }
+            ],
+            "name": "isApprovedForAll",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "latestPassportByIdentity",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "expectedId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "holder",
+                "type": "address"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "commitment",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "updatedAt",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "schemaVersion",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "providerRef",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "sourceDirectoryVersion",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct GigPassport.Evidence",
+                "name": "evidence",
+                "type": "tuple"
+              }
+            ],
+            "name": "mint",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "name",
+            "outputs": [
+              {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "nextPassportId",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "ownerOf",
+            "outputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "commitment",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "updatedAt",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "schemaVersion",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "providerRef",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "sourceDirectoryVersion",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct GigPassport.Evidence",
+                "name": "evidence",
+                "type": "tuple"
+              }
+            ],
+            "name": "refresh",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "reissueAllowed",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "address",
+                "name": "callerConfirmation",
+                "type": "address"
+              }
+            ],
+            "name": "renounceRole",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "string",
+                "name": "reason",
+                "type": "string"
+              }
+            ],
+            "name": "revoke",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "role",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              }
+            ],
+            "name": "revokeRole",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "safeTransferFrom",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "bytes",
+                "name": "data",
+                "type": "bytes"
+              }
+            ],
+            "name": "safeTransferFrom",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              },
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "name": "setApprovalForAll",
+            "outputs": [],
+            "stateMutability": "pure",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes4",
+                "name": "interfaceId",
+                "type": "bytes4"
+              }
+            ],
+            "name": "supportsInterface",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "symbol",
+            "outputs": [
+              {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "tokenId",
+                "type": "uint256"
+              }
+            ],
+            "name": "tokenURI",
+            "outputs": [
+              {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "name": "transferFrom",
+            "outputs": [],
+            "stateMutability": "pure",
+            "type": "function"
+          }
+        ],
+        "contract": "GigPassport"
+      },
+      "math": {
+        "address": "0xA5aba3907444E81307C72F33FFe84eBA9e90A0C8",
+        "abi": [
+          {
+            "inputs": [
+              {
+                "internalType": "uint256[2]",
+                "name": "_pA",
+                "type": "uint256[2]"
+              },
+              {
+                "internalType": "uint256[2][2]",
+                "name": "_pB",
+                "type": "uint256[2][2]"
+              },
+              {
+                "internalType": "uint256[2]",
+                "name": "_pC",
+                "type": "uint256[2]"
+              },
+              {
+                "internalType": "uint256[29]",
+                "name": "_pubSignals",
+                "type": "uint256[29]"
+              }
+            ],
+            "name": "verifyProof",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          }
+        ],
+        "contract": "Groth16Verifier"
+      },
+      "token": {
+        "address": "0x422F658C70796ec560b51b473442e5Ccf5fC0d30",
+        "abi": [
+          {
+            "inputs": [],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "spender",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "allowance",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "needed",
+                "type": "uint256"
+              }
+            ],
+            "name": "ERC20InsufficientAllowance",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "balance",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "needed",
+                "type": "uint256"
+              }
+            ],
+            "name": "ERC20InsufficientBalance",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "approver",
+                "type": "address"
+              }
+            ],
+            "name": "ERC20InvalidApprover",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "receiver",
+                "type": "address"
+              }
+            ],
+            "name": "ERC20InvalidReceiver",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "sender",
+                "type": "address"
+              }
+            ],
+            "name": "ERC20InvalidSender",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "spender",
+                "type": "address"
+              }
+            ],
+            "name": "ERC20InvalidSpender",
+            "type": "error"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "spender",
+                "type": "address"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "value",
+                "type": "uint256"
+              }
+            ],
+            "name": "Approval",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+              },
+              {
+                "indexed": true,
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "value",
+                "type": "uint256"
+              }
+            ],
+            "name": "Transfer",
+            "type": "event"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "owner",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "spender",
+                "type": "address"
+              }
+            ],
+            "name": "allowance",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "spender",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "value",
+                "type": "uint256"
+              }
+            ],
+            "name": "approve",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "account",
+                "type": "address"
+              }
+            ],
+            "name": "balanceOf",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "decimals",
+            "outputs": [
+              {
+                "internalType": "uint8",
+                "name": "",
+                "type": "uint8"
+              }
+            ],
+            "stateMutability": "pure",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "name",
+            "outputs": [
+              {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "symbol",
+            "outputs": [
+              {
+                "internalType": "string",
+                "name": "",
+                "type": "string"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "totalSupply",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "value",
+                "type": "uint256"
+              }
+            ],
+            "name": "transfer",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "from",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "to",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "value",
+                "type": "uint256"
+              }
+            ],
+            "name": "transferFrom",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          }
+        ],
+        "contract": "MockUSDCV02"
+      },
+      "gate": {
+        "address": "0x351f9FAdE2BF47226a207D450728E6e241faFD2C",
+        "abi": [
+          {
+            "inputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "p",
+                "type": "address"
+              },
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "m",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "signer",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+          },
+          {
+            "inputs": [],
+            "name": "ECDSAInvalidSignature",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "length",
+                "type": "uint256"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureLength",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "s",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureS",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "FailedCondition",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidAuthorization",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidPolicy",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidProof",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidShortString",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "string",
+                "name": "str",
+                "type": "string"
+              }
+            ],
+            "name": "StringTooLong",
+            "type": "error"
+          },
+          {
+            "anonymous": false,
+            "inputs": [],
+            "name": "EIP712DomainChanged",
+            "type": "event"
+          },
+          {
+            "inputs": [],
+            "name": "domainHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "eip712Domain",
+            "outputs": [
+              {
+                "internalType": "bytes1",
+                "name": "fields",
+                "type": "bytes1"
+              },
+              {
+                "internalType": "string",
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "version",
+                "type": "string"
+              },
+              {
+                "internalType": "uint256",
+                "name": "chainId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "verifyingContract",
+                "type": "address"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "salt",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256[]",
+                "name": "extensions",
+                "type": "uint256[]"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "intendedVerifier",
+            "outputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "mathVerifier",
+            "outputs": [
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "passport",
+            "outputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "bytes32",
+                    "name": "requestId",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "verifierId",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeWindowMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minAverageIncomePaise",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityIsWeekly",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityWindow",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minActivePeriods",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "historyEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minHistoryMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxEvidenceAgeDays",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "expiresAt",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Policy",
+                "name": "p",
+                "type": "tuple"
+              }
+            ],
+            "name": "policyHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "passportId",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "requestId",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "address",
+                        "name": "verifierId",
+                        "type": "address"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeWindowMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minAverageIncomePaise",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityIsWeekly",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityWindow",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minActivePeriods",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "historyEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minHistoryMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "maxEvidenceAgeDays",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "expiresAt",
+                        "type": "uint256"
+                      }
+                    ],
+                    "internalType": "struct EligibilityGateV02.Policy",
+                    "name": "policy",
+                    "type": "tuple"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "verifierSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "workerSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "a",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[2][2]",
+                    "name": "b",
+                    "type": "uint256[2][2]"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "c",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[29]",
+                    "name": "signals",
+                    "type": "uint256[29]"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Package",
+                "name": "x",
+                "type": "tuple"
+              }
+            ],
+            "name": "verify",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "incomePass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "historyPass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "activityPass",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          }
+        ],
+        "contract": "EligibilityGateV02"
+      },
+      "welfare": {
+        "address": "0x4d91a142D12893b618969C1862eE50a7134Ba4A8",
+        "abi": [
+          {
+            "inputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "p",
+                "type": "address"
+              },
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "m",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "signer",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+          },
+          {
+            "inputs": [],
+            "name": "ECDSAInvalidSignature",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "length",
+                "type": "uint256"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureLength",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "s",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureS",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "FailedCondition",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidAuthorization",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidPolicy",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidProof",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidShortString",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "string",
+                "name": "str",
+                "type": "string"
+              }
+            ],
+            "name": "StringTooLong",
+            "type": "error"
+          },
+          {
+            "anonymous": false,
+            "inputs": [],
+            "name": "EIP712DomainChanged",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "bytes32",
+                "name": "requestId",
+                "type": "bytes32"
+              }
+            ],
+            "name": "SupportClaimed",
+            "type": "event"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "passportId",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "requestId",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "address",
+                        "name": "verifierId",
+                        "type": "address"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeWindowMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minAverageIncomePaise",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityIsWeekly",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityWindow",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minActivePeriods",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "historyEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minHistoryMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "maxEvidenceAgeDays",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "expiresAt",
+                        "type": "uint256"
+                      }
+                    ],
+                    "internalType": "struct EligibilityGateV02.Policy",
+                    "name": "policy",
+                    "type": "tuple"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "verifierSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "workerSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "a",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[2][2]",
+                    "name": "b",
+                    "type": "uint256[2][2]"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "c",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[29]",
+                    "name": "signals",
+                    "type": "uint256[29]"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Package",
+                "name": "x",
+                "type": "tuple"
+              }
+            ],
+            "name": "claim",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "claimedByIdentity",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "consumedRequests",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "domainHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "eip712Domain",
+            "outputs": [
+              {
+                "internalType": "bytes1",
+                "name": "fields",
+                "type": "bytes1"
+              },
+              {
+                "internalType": "string",
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "version",
+                "type": "string"
+              },
+              {
+                "internalType": "uint256",
+                "name": "chainId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "verifyingContract",
+                "type": "address"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "salt",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256[]",
+                "name": "extensions",
+                "type": "uint256[]"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "intendedVerifier",
+            "outputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "mathVerifier",
+            "outputs": [
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "passport",
+            "outputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "bytes32",
+                    "name": "requestId",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "verifierId",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeWindowMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minAverageIncomePaise",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityIsWeekly",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityWindow",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minActivePeriods",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "historyEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minHistoryMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxEvidenceAgeDays",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "expiresAt",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Policy",
+                "name": "p",
+                "type": "tuple"
+              }
+            ],
+            "name": "policyHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "passportId",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "requestId",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "address",
+                        "name": "verifierId",
+                        "type": "address"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeWindowMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minAverageIncomePaise",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityIsWeekly",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityWindow",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minActivePeriods",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "historyEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minHistoryMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "maxEvidenceAgeDays",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "expiresAt",
+                        "type": "uint256"
+                      }
+                    ],
+                    "internalType": "struct EligibilityGateV02.Policy",
+                    "name": "policy",
+                    "type": "tuple"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "verifierSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "workerSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "a",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[2][2]",
+                    "name": "b",
+                    "type": "uint256[2][2]"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "c",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[29]",
+                    "name": "signals",
+                    "type": "uint256[29]"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Package",
+                "name": "x",
+                "type": "tuple"
+              }
+            ],
+            "name": "verify",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "incomePass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "historyPass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "activityPass",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          }
+        ],
+        "contract": "WelfareVaultV02"
+      },
+      "loan": {
+        "address": "0x4A7cBCFfe2207b9c627274Cc99ac359F0cfd5445",
+        "abi": [
+          {
+            "inputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "p",
+                "type": "address"
+              },
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "m",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "signer",
+                "type": "address"
+              },
+              {
+                "internalType": "contract IERC20",
+                "name": "token",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "nonpayable",
+            "type": "constructor"
+          },
+          {
+            "inputs": [],
+            "name": "ECDSAInvalidSignature",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "length",
+                "type": "uint256"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureLength",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "s",
+                "type": "bytes32"
+              }
+            ],
+            "name": "ECDSAInvalidSignatureS",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "FailedCondition",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidAuthorization",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidPolicy",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidProof",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "InvalidShortString",
+            "type": "error"
+          },
+          {
+            "inputs": [],
+            "name": "ReentrancyGuardReentrantCall",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "address",
+                "name": "token",
+                "type": "address"
+              }
+            ],
+            "name": "SafeERC20FailedOperation",
+            "type": "error"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "string",
+                "name": "str",
+                "type": "string"
+              }
+            ],
+            "name": "StringTooLong",
+            "type": "error"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              },
+              {
+                "indexed": false,
+                "internalType": "bytes32",
+                "name": "requestId",
+                "type": "bytes32"
+              }
+            ],
+            "name": "Borrowed",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [],
+            "name": "EIP712DomainChanged",
+            "type": "event"
+          },
+          {
+            "anonymous": false,
+            "inputs": [
+              {
+                "indexed": true,
+                "internalType": "bytes32",
+                "name": "identity",
+                "type": "bytes32"
+              },
+              {
+                "indexed": true,
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              }
+            ],
+            "name": "Repaid",
+            "type": "event"
+          },
+          {
+            "inputs": [],
+            "name": "PRINCIPAL",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "asset",
+            "outputs": [
+              {
+                "internalType": "contract IERC20",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "passportId",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "requestId",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "address",
+                        "name": "verifierId",
+                        "type": "address"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeWindowMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minAverageIncomePaise",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityIsWeekly",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityWindow",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minActivePeriods",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "historyEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minHistoryMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "maxEvidenceAgeDays",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "expiresAt",
+                        "type": "uint256"
+                      }
+                    ],
+                    "internalType": "struct EligibilityGateV02.Policy",
+                    "name": "policy",
+                    "type": "tuple"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "verifierSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "workerSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "a",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[2][2]",
+                    "name": "b",
+                    "type": "uint256[2][2]"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "c",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[29]",
+                    "name": "signals",
+                    "type": "uint256[29]"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Package",
+                "name": "x",
+                "type": "tuple"
+              }
+            ],
+            "name": "borrow",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "consumedRequests",
+            "outputs": [
+              {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "domainHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "eip712Domain",
+            "outputs": [
+              {
+                "internalType": "bytes1",
+                "name": "fields",
+                "type": "bytes1"
+              },
+              {
+                "internalType": "string",
+                "name": "name",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "version",
+                "type": "string"
+              },
+              {
+                "internalType": "uint256",
+                "name": "chainId",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "verifyingContract",
+                "type": "address"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "salt",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "uint256[]",
+                "name": "extensions",
+                "type": "uint256[]"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "intendedVerifier",
+            "outputs": [
+              {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "mathVerifier",
+            "outputs": [
+              {
+                "internalType": "contract IMathVerifierV02",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [],
+            "name": "passport",
+            "outputs": [
+              {
+                "internalType": "contract GigPassport",
+                "name": "",
+                "type": "address"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "bytes32",
+                    "name": "requestId",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "verifierId",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "incomeWindowMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minAverageIncomePaise",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityIsWeekly",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "activityWindow",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minActivePeriods",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "historyEnabled",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "minHistoryMonths",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxEvidenceAgeDays",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "expiresAt",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Policy",
+                "name": "p",
+                "type": "tuple"
+              }
+            ],
+            "name": "policyHash",
+            "outputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "bytes32",
+                "name": "",
+                "type": "bytes32"
+              }
+            ],
+            "name": "principalByIdentity",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "internalType": "uint256",
+                "name": "passportId",
+                "type": "uint256"
+              }
+            ],
+            "name": "repay",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+          },
+          {
+            "inputs": [
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "passportId",
+                    "type": "uint256"
+                  },
+                  {
+                    "components": [
+                      {
+                        "internalType": "bytes32",
+                        "name": "requestId",
+                        "type": "bytes32"
+                      },
+                      {
+                        "internalType": "address",
+                        "name": "verifierId",
+                        "type": "address"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "incomeWindowMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minAverageIncomePaise",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityIsWeekly",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "activityWindow",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minActivePeriods",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "historyEnabled",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "minHistoryMonths",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "maxEvidenceAgeDays",
+                        "type": "uint256"
+                      },
+                      {
+                        "internalType": "uint256",
+                        "name": "expiresAt",
+                        "type": "uint256"
+                      }
+                    ],
+                    "internalType": "struct EligibilityGateV02.Policy",
+                    "name": "policy",
+                    "type": "tuple"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "verifierSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "bytes",
+                    "name": "workerSignature",
+                    "type": "bytes"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "a",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[2][2]",
+                    "name": "b",
+                    "type": "uint256[2][2]"
+                  },
+                  {
+                    "internalType": "uint256[2]",
+                    "name": "c",
+                    "type": "uint256[2]"
+                  },
+                  {
+                    "internalType": "uint256[29]",
+                    "name": "signals",
+                    "type": "uint256[29]"
+                  }
+                ],
+                "internalType": "struct EligibilityGateV02.Package",
+                "name": "x",
+                "type": "tuple"
+              }
+            ],
+            "name": "verify",
+            "outputs": [
+              {
+                "internalType": "uint256",
+                "name": "incomePass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "historyPass",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "activityPass",
+                "type": "uint256"
+              }
+            ],
+            "stateMutability": "view",
+            "type": "function"
+          }
+        ],
+        "contract": "DemoLendingPoolV02"
+      }
+    },
+    "roles": {
+      "admin": "0x432f3549ca6B77356151f071c6D5eD2453C238aB",
+      "attester": "0x2D57127ce7FE38b759A75715e86998bA70aD5f70",
+      "verifier": "0xA1166f16Defd13338A509AfA9132869D4a371503"
+    },
+    "domain": {
+      "name": "GigVaultEligibility",
+      "version": "0.2-provisional",
+      "chainId": 1337,
+      "verifyingContract": "per-consumer"
+    },
+    "publicSignalOrder": [
+      "incomePass",
+      "historyPass",
+      "activityPass",
+      "authorizationBinding",
+      "expectedCommitment",
+      "passportId",
+      "holderBinding",
+      "evidenceUpdatedAt",
+      "evidenceVersion",
+      "verifierId",
+      "chainId",
+      "consumer",
+      "requestHi",
+      "requestLo",
+      "policyHi",
+      "policyLo",
+      "domainHi",
+      "domainLo",
+      "expiresAt",
+      "maxEvidenceAgeDays",
+      "incomeEnabled",
+      "incomeWindowMonths",
+      "minAverageIncomePaise",
+      "activityEnabled",
+      "activityIsWeekly",
+      "activityWindow",
+      "minActivePeriods",
+      "historyEnabled",
+      "minHistoryMonths"
+    ],
+    "bundleVersion": "gv-local-integration-b5/1",
+    "syntheticOnly": true,
+    "policyTypes": {
+      "VerificationPolicy": [
+        {
+          "name": "requestId",
+          "type": "bytes32"
+        },
+        {
+          "name": "verifierId",
+          "type": "address"
+        },
+        {
+          "name": "incomeEnabled",
+          "type": "uint256"
+        },
+        {
+          "name": "incomeWindowMonths",
+          "type": "uint256"
+        },
+        {
+          "name": "minAverageIncomePaise",
+          "type": "uint256"
+        },
+        {
+          "name": "activityEnabled",
+          "type": "uint256"
+        },
+        {
+          "name": "activityIsWeekly",
+          "type": "uint256"
+        },
+        {
+          "name": "activityWindow",
+          "type": "uint256"
+        },
+        {
+          "name": "minActivePeriods",
+          "type": "uint256"
+        },
+        {
+          "name": "historyEnabled",
+          "type": "uint256"
+        },
+        {
+          "name": "minHistoryMonths",
+          "type": "uint256"
+        },
+        {
+          "name": "maxEvidenceAgeDays",
+          "type": "uint256"
+        },
+        {
+          "name": "expiresAt",
+          "type": "uint256"
+        }
+      ]
+    },
+    "approvalTypes": {
+      "WorkerApproval": [
+        {
+          "name": "requestId",
+          "type": "bytes32"
+        },
+        {
+          "name": "passportId",
+          "type": "uint256"
+        },
+        {
+          "name": "evidenceVersion",
+          "type": "uint256"
+        },
+        {
+          "name": "evidenceCommitment",
+          "type": "uint256"
+        },
+        {
+          "name": "policyHash",
+          "type": "bytes32"
+        },
+        {
+          "name": "verifierId",
+          "type": "address"
+        },
+        {
+          "name": "expiresAt",
+          "type": "uint256"
+        },
+        {
+          "name": "domainHash",
+          "type": "bytes32"
+        }
+      ]
+    },
+    "consumerPolicies": {
+      "welfare": {
+        "incomeEnabled": "0",
+        "incomeWindowMonths": "0",
+        "minAverageIncomePaise": "0",
+        "activityEnabled": "1",
+        "activityIsWeekly": "0",
+        "activityWindow": "6",
+        "minActivePeriods": "4",
+        "historyEnabled": "1",
+        "minHistoryMonths": "6",
+        "maxEvidenceAgeDays": "90"
+      },
+      "loan": {
+        "incomeEnabled": "1",
+        "incomeWindowMonths": "6",
+        "minAverageIncomePaise": "2000000",
+        "activityEnabled": "1",
+        "activityIsWeekly": "0",
+        "activityWindow": "12",
+        "minActivePeriods": "9",
+        "historyEnabled": "1",
+        "minHistoryMonths": "12",
+        "maxEvidenceAgeDays": "30"
+      }
+    },
+    "fixture": {
+      "passportId": "1",
+      "holder": "0x421eAd207458114A63c75B56cFeAF7375D5301C7",
+      "identity": "0x5522b522679e5285c6a5ec22eff5e141aaa94f3f5d4d3a3e2a335e70ef355b7b",
+      "source": "LOCAL_SYNTHETIC_FIXTURE",
+      "evidenceHandle": "b5-synthetic-worker"
+    },
+    "actors": {
+      "worker": "0x421eAd207458114A63c75B56cFeAF7375D5301C7",
+      "replacement": "0xc3b23B46893811F667b78E408f303F64968c528c"
+    },
+    "privateInterface": {
+      "kind": "trusted-in-process-or-parent-child-IPC",
+      "publicProofEndpoint": null
+    }
+  },
+  "cleanupVerified": true
+}

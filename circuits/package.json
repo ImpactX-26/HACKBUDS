@@ -1,0 +1,31 @@
+{
+  "name": "gigvault-provisional-poseidon-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup:circom": "node scripts/setup-circom.mjs",
+    "build": "node scripts/build.mjs && node scripts/prepare-upstream.mjs && tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js test/fr-v02.test.mjs",
+    "fr:record": "npm run build && node scripts/record-vectors.mjs && node test/fr-v02.test.mjs --record",
+    "fr:test": "npm run build && node --test test/fr-v02.test.mjs",
+    "fixtures:record": "npm run build && node scripts/record-vectors.mjs",
+    "proof:smoke": "npm run build && node scripts/groth16-smoke.mjs",
+    "gate1:record": "npm run build && node scripts/record-backend-a.mjs",
+    "gate1:prepare": "powershell -NoProfile -File scripts/prepare-final-gate1.ps1",
+    "gate1:final": "npm run build && node --test test/final-gate1.test.mjs",
+    "gate1:final:record": "npm run build && node test/final-gate1.test.mjs --record",
+    "predicates:build": "node scripts/build-predicates.mjs && tsc -p tsconfig.json",
+    "predicates:test": "npm run predicates:build && node --test dist/circuits/test/income-activity.test.js",
+    "predicates:proof": "npm run predicates:build && node scripts/predicate-proof-smoke.mjs",
+    "eligibility:test": "npm run predicates:build && node --test test/eligibility.test.mjs dist/circuits/test/income-activity.test.js",
+    "eligibility:proof": "npm run predicates:build && node scripts/eligibility-proof.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "circomlib": "2.0.5",
+    "circomlibjs": "0.1.7",
+    "snarkjs": "0.7.5",
+    "typescript": "5.9.3"
+  }
+}
