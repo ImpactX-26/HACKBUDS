@@ -43,6 +43,12 @@ import {
   type ProverHandoffResult,
 } from './prover-boundary.js';
 
+/**
+ * Current approved evidence schema version for on-chain commitments.
+ * Schema 2 represents the aligned v0.2.0 profile (gv-poseidon-hash-only-0.2.0) over BN254 Fr.
+ */
+export const CURRENT_EVIDENCE_SCHEMA_VERSION = 2;
+
 export interface AttestationRequest {
   consentId: string;
   workerWalletAddress: string;
@@ -434,7 +440,7 @@ export class AttestationService {
       const evidenceData: EvidenceCommitmentData = {
         commitment: commitmentRes.evidenceCommitment,
         updatedAt: attestation.evidenceUpdatedAt,
-        schemaVersion: 1,
+        schemaVersion: CURRENT_EVIDENCE_SCHEMA_VERSION,
         providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
         sourceDirectoryVersion: attestation.sourceDirectoryVersion,
       };
@@ -496,7 +502,7 @@ export class AttestationService {
     const evidenceData: EvidenceCommitmentData = {
       commitment: commitmentRes.evidenceCommitment,
       updatedAt: attestation.evidenceUpdatedAt,
-      schemaVersion: 1,
+      schemaVersion: CURRENT_EVIDENCE_SCHEMA_VERSION,
       providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
       sourceDirectoryVersion: attestation.sourceDirectoryVersion,
     };
@@ -551,7 +557,7 @@ export class AttestationService {
     const evidenceData: EvidenceCommitmentData = {
       commitment: commitmentRes.evidenceCommitment,
       updatedAt: attestation.evidenceUpdatedAt,
-      schemaVersion: 1,
+      schemaVersion: CURRENT_EVIDENCE_SCHEMA_VERSION,
       providerRef: '0x' + Buffer.from(attestation.evidenceProviderId.padEnd(32, '\0')).toString('hex').slice(0, 64),
       sourceDirectoryVersion: attestation.sourceDirectoryVersion,
     };

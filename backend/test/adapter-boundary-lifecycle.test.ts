@@ -439,6 +439,7 @@ describe('Backend A Independent Adapter Boundaries & Lifecycle', () => {
       assert.ok(passportAfterMint);
       assert.strictEqual(passportAfterMint.status, 'ACTIVE');
       assert.strictEqual(passportAfterMint.evidenceVersion, 1);
+      assert.strictEqual(passportAfterMint.schemaVersion, 2);
 
       // Step B: Duplicate Mint must fail
       const consentDup = consentService.createConsent({
@@ -521,6 +522,7 @@ describe('Backend A Independent Adapter Boundaries & Lifecycle', () => {
       assert.strictEqual(refreshResult.passportId, 1);
       const passportAfterRefresh = await mockPassportContract.getPassport(1);
       assert.strictEqual(passportAfterRefresh?.evidenceVersion, 2);
+      assert.strictEqual(passportAfterRefresh?.schemaVersion, 2);
       assert.strictEqual(passportAfterRefresh?.evidenceUpdatedAt, advancedCutoff);
 
       // Step D: Administrative Revocation
@@ -620,6 +622,7 @@ describe('Backend A Independent Adapter Boundaries & Lifecycle', () => {
       assert.strictEqual(reissueResult.passportId, 2);
       const passport2 = await mockPassportContract.getPassport(2);
       assert.strictEqual(passport2?.status, 'ACTIVE');
+      assert.strictEqual(passport2?.schemaVersion, 2);
 
       // Reissue authorization must be consumed
       assert.strictEqual(
