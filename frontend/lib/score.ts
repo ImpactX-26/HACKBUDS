@@ -1,10 +1,11 @@
-import { SCORE_CAPS, SCORE_WEIGHTS } from "./constants";
+import { calculateGigScore } from "../../contracts/integration/gig-score.mjs";
 
 export interface ScoreInput {
   tenure: number; // months
   periods: number; // weeks paid
   missed: number; // missed weeks
   income: number; // rupees / month
+  recentWeeks?: number; // optional paid weeks in recent 12 weeks (0-12)
 }
 
 export interface FactorScore {
@@ -17,53 +18,54 @@ export interface ScorePartsResult {
   tenure: FactorScore;
   consistency: FactorScore;
   income: FactorScore;
+  activity?: FactorScore;
   total: number; // integer 0-100
+  mode: "three-factor" | "four-factor";
 }
 
 export type ScoreBand = "Strong" | "Good" | "Fair" | "Weak";
 
 export function scoreParts(input: ScoreInput): ScorePartsResult {
-  const tenure = Math.max(0, input.tenure);
-  const periods = Math.max(0, input.periods);
-  const missed = Math.max(0, input.missed);
-  const income = Math.max(0, input.income);
+  const tenureMonths = Math.max(0, Math.round(input.tenure));
+  const weeksPaid = Math.max(0, Math.round(input.periods));
+  const missedWeeks = Math.max(0, Math.round(input.missed));
+  const rawIncomePaise = Math.max(0, Math.round((input.income || 0) * 100));
+  const incomePaise = BigInt(rawIncomePaise).toString();
+  const recentWeeks = input.recentWeeks !== undefined ? Math.min(12, Math.max(0, Math.round(input.recentWeeks))) : undefined;
 
-  // tenureScore = min(tenure / 24, 1) * 100
-  const tenureScore = Math.min(tenure / SCORE_CAPS.tenureMonths, 1) * 100;
-
-  // consistencyScore = periods / (periods + missed) * 100 (if periods + missed is 0, use 0)
-  const totalWeeks = periods + missed;
-  const consistencyScore = totalWeeks > 0 ? (periods / totalWeeks) * 100 : 0;
-
-  // incomeScore = min(income / 30000, 1) * 100
-  const incomeScore = Math.min(income / SCORE_CAPS.monthlyIncome, 1) * 100;
-
-  // Weighted points
-  const tenurePoints = SCORE_WEIGHTS.tenure * tenureScore;
-  const consistencyPoints = SCORE_WEIGHTS.consistency * consistencyScore;
-  const incomePoints = SCORE_WEIGHTS.income * incomeScore;
-
-  // gigScore = 0.25 * tenureScore + 0.35 * consistencyScore + 0.40 * incomeScore
-  const rawScore = tenurePoints + consistencyPoints + incomePoints;
-  const total = Math.min(100, Math.max(0, Math.round(rawScore)));
+  const res = calculateGigScore({
+    tenureMonths,
+    weeksPaid,
+    missedWeeks,
+    averageMonthlyIncomePaise: incomePaise,
+    paidWeeksLast12Weeks: recentWeeks,
+  });
 
   return {
     tenure: {
-      score: tenureScore,
-      weight: SCORE_WEIGHTS.tenure,
-      points: tenurePoints,
+      score: res.components.tenure,
+      weight: res.weights.tenure,
+      points: res.components.tenure * res.weights.tenure,
     },
     consistency: {
-      score: consistencyScore,
-      weight: SCORE_WEIGHTS.consistency,
-      points: consistencyPoints,
+      score: res.components.consistency,
+      weight: res.weights.consistency,
+      points: res.components.consistency * res.weights.consistency,
     },
     income: {
-      score: incomeScore,
-      weight: SCORE_WEIGHTS.income,
-      points: incomePoints,
+      score: res.components.income,
+      weight: res.weights.income,
+      points: res.components.income * res.weights.income,
     },
-    total,
+    activity: res.components.activity !== undefined && res.weights.activity !== undefined
+      ? {
+          score: res.components.activity,
+          weight: res.weights.activity,
+          points: res.components.activity * res.weights.activity,
+        }
+      : undefined,
+    total: res.score,
+    mode: res.mode as "three-factor" | "four-factor",
   };
 }
 
@@ -81,4 +83,3 @@ export function bandOf(score: number): ScoreBand {
 export function partsOf(input: ScoreInput): ScorePartsResult {
   return scoreParts(input);
 }
-
