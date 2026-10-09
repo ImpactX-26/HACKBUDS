@@ -44,7 +44,7 @@ export default function Verify() {
       readable: t("qrReadable"),
       exists: t("qrExists"),
       signature: t("qrSignature"),
-      fresh: t("whyFresh"),
+      fresh: t("qrFresh"),
       notRevoked: t("qrNotRevoked"),
       notExpired: t("qrNotExpired"),
       band: t("qrBar"),
