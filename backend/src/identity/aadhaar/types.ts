@@ -85,6 +85,18 @@ export interface VerifyAadhaarResult {
 
 export type RealVerificationStatus = 'VERIFIED' | 'NOT_YET_VERIFIED';
 
+/**
+ * Authenticated artifact provenance required for genuine production verification.
+ */
+export interface AnonAadhaarArtifactProvenance {
+  circuit: string; // Must match official circuit identifier (e.g. 'anon-aadhaar-v2')
+  releaseVersion: string; // Official release tag or commit
+  artifactHash: string; // SHA-256 hex digest of verified production verification key
+  authority: string; // Trusted authority (e.g. 'UIDAI_OFFICIAL' or 'ANON_AADHAAR_OFFICIAL')
+  trustRegistryUri?: string;
+  verifiedAt?: number;
+}
+
 export interface IAadhaarProofVerifier {
   getTrustMode(): AadhaarTrustMode;
   verify(request: VerifyAadhaarRequest): Promise<VerifyAadhaarResult>;
@@ -153,6 +165,15 @@ export class AnonAadhaarPubkeyNotTrustedError extends Error {
   constructor(pubkeyHash: string) {
     super(`AnonAadhaarPubkeyNotTrusted: public key hash ${pubkeyHash} is not in trusted root configuration`);
     this.name = 'AnonAadhaarPubkeyNotTrustedError';
+  }
+}
+
+export class AnonAadhaarTestKeyAsProductionProhibitedError extends Error {
+  constructor(pubkeyHash: string) {
+    super(
+      `AnonAadhaarTestKeyAsProductionProhibited: Staging/test public key hash ${pubkeyHash} cannot be registered or trusted as a genuine production root`
+    );
+    this.name = 'AnonAadhaarTestKeyAsProductionProhibitedError';
   }
 }
 

@@ -13,6 +13,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createBackendAPoseidon } from '../src/evidence/poseidon-adapter.js';
+import { field } from '../../shared/proposal/poseidon5.js';
 import { addressToFieldElement, hashToFieldElement, providerIdToFieldElement } from '../../shared/proposal/field-mappings.js';
 import {
   serializeCanonicalEvidence,
@@ -59,16 +60,43 @@ describe('Gate 1 Poseidon Parity & Interoperability (Backend A <-> Backend B)', 
 
     const res = hashes.commit(input);
 
-    // Exact expected decimal field values from Backend B review (docs/review/BACKEND_B_GATE1_INTEROPERABILITY_REVIEW.md)
+    // Exact expected decimal field values for v0.2 under BN254 Fr (profile gv-poseidon-hash-only-0.2.0)
     const expectedIncomeRoot = '20119275159189889380691640169503521072267433455885550380794051959666890461667';
     const expectedWeeklyRoot = '21852563639151117767628491974987827408917650138870771480290417841191760527724';
     const expectedMonthlyRoot = '13559395075388244745760140214469017241871546221208979575604441749602464732002';
-    const expectedCommitment = '17057776044314545379576656229478007760108694673197752276092855675165560572398';
+    const expectedCommitment = '8604199483245315794575037546264188139946404873266288475026472059194307212904';
 
     assert.strictEqual(res.incomeRoot.toString(), expectedIncomeRoot, 'incomeRoot must match Backend B output');
     assert.strictEqual(res.weeklyRoot.toString(), expectedWeeklyRoot, 'weeklyRoot must match Backend B output');
     assert.strictEqual(res.monthlyRoot.toString(), expectedMonthlyRoot, 'monthlyRoot must match Backend B output');
-    assert.strictEqual(res.evidenceCommitment.toString(), expectedCommitment, 'evidenceCommitment must match Backend B output');
+    assert.strictEqual(res.evidenceCommitment.toString(), expectedCommitment, 'evidenceCommitment must match v0.2 profile output');
+  });
+
+  it('MUST PRESERVE: historical v0.1 vector in typed-snapshot-fixture.v0.1.legacy.json and reject silent reinterpretation', () => {
+    const legacyPath = resolve(process.cwd(), '../shared/proposal/typed-snapshot-fixture.v0.1.legacy.json');
+    const legacyFixture = JSON.parse(readFileSync(legacyPath, 'utf8'));
+
+    assert.strictEqual(legacyFixture.profile, 'gv-poseidon-hash-only-0.1.0');
+    assert.ok(legacyFixture.status.startsWith('LEGACY_HISTORICAL_V0_1'));
+    assert.strictEqual(
+      legacyFixture.proposedMetadataSlots.evidenceCommitment,
+      '17057776044314545379576656229478007760108694673197752276092855675165560572398'
+    );
+
+    const currentPath = resolve(process.cwd(), '../shared/proposal/typed-snapshot-fixture.json');
+    const currentFixture = JSON.parse(readFileSync(currentPath, 'utf8'));
+
+    assert.strictEqual(currentFixture.profile, 'gv-poseidon-hash-only-0.2.0');
+    assert.strictEqual(
+      currentFixture.proposedMetadataSlots.evidenceCommitment,
+      '8604199483245315794575037546264188139946404873266288475026472059194307212904'
+    );
+
+    assert.notStrictEqual(
+      legacyFixture.proposedMetadataSlots.evidenceCommitment,
+      currentFixture.proposedMetadataSlots.evidenceCommitment,
+      'Historical v0.1 commitment must never be silently reinterpreted as v0.2'
+    );
   });
 
   it('MUST BIND: authenticated remitter.name in canonical dataset digest', () => {
@@ -233,8 +261,8 @@ describe('Gate 1 Poseidon Parity & Interoperability (Backend A <-> Backend B)', 
     const dataHashField = hashToFieldElement(sha256Hex);
     assert.strictEqual(
       dataHashField.toString(),
-      '8479584554115755712227973106457499606067708830244852437925920972305787106748',
-      'Digest mod r field element must match Backend B e991 fixture'
+      '8479584554115755712227973106457499606215655587126641756916754680375204819714',
+      'Digest mod Fr field element must match v0.2 specification'
     );
 
     // 2. Build snapshot with Directory Version 3
@@ -288,8 +316,8 @@ describe('Gate 1 Poseidon Parity & Interoperability (Backend A <-> Backend B)', 
     );
     assert.strictEqual(
       commitDir3.evidenceCommitment.toString(),
-      '10726476670528999076866107901464198313257170751774472100053243783233552060424',
-      'Commitment (dir 3) must match Backend B e991 vector'
+      '14197618820907159849885924515057744223641221979692719261260710044385666247302',
+      'Commitment (dir 3) must match v0.2 vector'
     );
 
     // 4. Historical Directory 1 vector
@@ -316,8 +344,44 @@ describe('Gate 1 Poseidon Parity & Interoperability (Backend A <-> Backend B)', 
 
     assert.strictEqual(
       commitDir1.evidenceCommitment.toString(),
-      '3434642233711873443323895407087161423409459365193261731849263244990213477830',
-      'Historical commitment (dir 1) must match Backend B e991 vector'
+      '3215476944588819167795523858993862318258515346890913709400108960051608252520',
+      'Historical commitment (dir 1) must match v0.2 vector'
+    );
+  });
+
+  it('MUST REJECT: values in [r, q) at Poseidon and schema boundaries', async () => {
+    const r = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    const q = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+
+    // Test a scalar strictly within [r, q)
+    const testScalar = r + 42n;
+    assert.ok(testScalar < q, 'testScalar is strictly within base field Fq');
+    assert.ok(testScalar >= r, 'testScalar is strictly outside scalar field Fr');
+
+    const hashes = await createBackendAPoseidon();
+
+    // Poseidon field() validator must reject values in [r, q)
+    assert.throws(
+      () => field(testScalar),
+      /Scalar outside BN254 field/
+    );
+
+    // Any attempt to commit with a value in [r, q) must throw
+    assert.throws(
+      () =>
+        hashes.commit({
+          passportId: testScalar,
+          holderBinding: 101n,
+          evidenceProviderId: 202n,
+          evidenceDataHash: 303n,
+          verifiedHistoryStartDate: 19000n,
+          evidenceUpdatedAt: 1730000000n,
+          sourceDirectoryVersion: 3n,
+          monthlyGigIncomeTotals: new Array(36).fill(0n),
+          weeklyActivity: new Array(156).fill(0n),
+          monthlyActivity: new Array(36).fill(0n),
+        }),
+      /Scalar outside BN254 field/
     );
   });
 

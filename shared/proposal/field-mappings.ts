@@ -1,12 +1,23 @@
 import { createHash } from 'node:crypto';
-import { FIELD } from './poseidon5.js';
+import { FIELD, BN254_FQ_BASE } from './poseidon5.js';
 
-// PROPOSED mappings; strict external boundaries. Only named digest mapping reduces.
+// PROPOSED mappings; strict external boundaries. Digest mapping reduces modulo BN254 Fr.
 export function hashToFieldElement(hexDigest: string): bigint {
   if (typeof hexDigest !== 'string' || !/^(?:0x)?[0-9a-fA-F]{64}$/.test(hexDigest)) {
     throw new Error('Expected exact 32-byte SHA-256 hex digest');
   }
-  return BigInt('0x'+hexDigest.replace(/^0x/, '')) % FIELD;
+  return BigInt('0x' + hexDigest.replace(/^0x/, '')) % FIELD;
+}
+
+/**
+ * Historical v0.1 legacy digest reduction modulo Fq base field.
+ * Explicitly preserved for regression verification of legacy v0.1 fixtures.
+ */
+export function hashToLegacyV01FieldElement(hexDigest: string): bigint {
+  if (typeof hexDigest !== 'string' || !/^(?:0x)?[0-9a-fA-F]{64}$/.test(hexDigest)) {
+    throw new Error('Expected exact 32-byte SHA-256 hex digest');
+  }
+  return BigInt('0x' + hexDigest.replace(/^0x/, '')) % BN254_FQ_BASE;
 }
 
 export function addressToFieldElement(address: string): bigint {

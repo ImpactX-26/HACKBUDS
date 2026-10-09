@@ -1,6 +1,25 @@
-// Backend B shared PROPOSAL adapter. These test parameters are NOT a shared wire freeze.
-export const PROFILE = 'gv-poseidon-hash-only-0.1.0';
-export const FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+// Backend B shared PROPOSAL adapter. Profile v0.2.0 aligns scalar field operations with BN254 Fr.
+export const PROFILE = 'gv-poseidon-hash-only-0.2.0';
+export const LEGACY_PROFILE_V0_1 = 'gv-poseidon-hash-only-0.1.0';
+
+/**
+ * BN254 Scalar Field Fr (group order r):
+ * 21888242871839275222246405745257275088548364400416034343698204186575808495617
+ * Circuit wires, Poseidon inputs, and proof public signals live strictly in Fr.
+ */
+export const BN254_FR_SCALAR = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+/**
+ * BN254 Base Field Fq (prime modulus q):
+ * 21888242871839275222246405745257275088696311157297823662689037894645226208583
+ * Preserved for elliptic curve base-field / coordinate operations (unchanged).
+ */
+export const BN254_FQ_BASE = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+
+/**
+ * Evidence commitment scalar operations strictly use BN254 Fr.
+ */
+export const FIELD = BN254_FR_SCALAR;
 export const TAGS = Object.freeze({
   income: Object.freeze([1100n, 1101n, 1102n]),
   weekly: Object.freeze([1200n, 1201n, 1202n, 1203n]),

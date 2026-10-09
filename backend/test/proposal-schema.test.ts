@@ -16,6 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BN254_SCALAR_FIELD_MODULUS,
+  BN254_FR_SCALAR,
+  BN254_FQ_BASE,
   hashToFieldElement,
   addressToFieldElement,
   providerIdToFieldElement,
@@ -23,6 +25,7 @@ import {
   computeCanonicalEvidenceDataHash,
   type CanonicalEvidencePreimage,
 } from '../../shared/proposal/canonical-evidence-schema.js';
+import { hashToLegacyV01FieldElement } from '../../shared/proposal/field-mappings.js';
 
 describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
   it('hashToFieldElement should reduce 32-byte hex hashes modulo r and reject malformed digests', () => {
@@ -176,5 +179,30 @@ describe('Proposed Shared Evidence Schema & BN254 Encodings (Gate 1)', () => {
       const flag = fixture.weeklyActivityFlags[i];
       assert.ok(flag === '0' || flag === '1', `weeklyActivity[${i}] must be 0 or 1`);
     }
+  });
+
+  it('BN254 scalar field must strictly equal Fr order, keeping EC base field Fq separate', () => {
+    // Fr (scalar field order): 21888242871839275222246405745257275088548364400416034343698204186575808495617n
+    // Fq (base field order):   21888242871839275222246405745257275088696311157297823662689037894645226208583n
+    assert.strictEqual(BN254_SCALAR_FIELD_MODULUS, BN254_FR_SCALAR);
+    assert.notStrictEqual(BN254_SCALAR_FIELD_MODULUS, BN254_FQ_BASE);
+    assert.ok(BN254_FR_SCALAR < BN254_FQ_BASE);
+
+    // Test a synthetic 32-byte digest whose integer value lies strictly in [r, q)
+    const valInBetween = BN254_FR_SCALAR + 777n;
+    assert.ok(valInBetween >= BN254_FR_SCALAR, 'valInBetween >= Fr');
+    assert.ok(valInBetween < BN254_FQ_BASE, 'valInBetween < Fq');
+
+    const hexInBetween = valInBetween.toString(16).padStart(64, '0');
+
+    // hashToFieldElement must reduce modulo Fr, yielding 777n
+    const reducedModFr = hashToFieldElement(hexInBetween);
+    assert.strictEqual(reducedModFr, 777n);
+    assert.ok(reducedModFr < BN254_FR_SCALAR);
+
+    // Legacy reduction reduced modulo Fq, yielding valInBetween which was >= Fr
+    const legacyModFq = hashToLegacyV01FieldElement(hexInBetween);
+    assert.strictEqual(legacyModFq, valInBetween);
+    assert.ok(legacyModFq >= BN254_FR_SCALAR, 'Legacy v0.1 yielded value outside scalar field Fr');
   });
 });

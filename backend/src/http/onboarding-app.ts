@@ -49,6 +49,7 @@ import {
   AnonAadhaarProofTamperedError,
   AnonAadhaarSignalBindingMismatchError,
   AnonAadhaarPubkeyNotTrustedError,
+  AnonAadhaarTestKeyAsProductionProhibitedError,
   AnonAadhaarVerificationKeyMissingError,
   AnonAadhaarPublicSignalMismatchError,
   MockAadhaarAssertionInvalidError,
@@ -123,6 +124,7 @@ export function createOnboardingApp(options: OnboardingAppOptions): Express {
       err instanceof AnonAadhaarProofTamperedError ||
       err instanceof AnonAadhaarSignalBindingMismatchError ||
       err instanceof AnonAadhaarPubkeyNotTrustedError ||
+      err instanceof AnonAadhaarTestKeyAsProductionProhibitedError ||
       err instanceof AnonAadhaarVerificationKeyMissingError ||
       err instanceof AnonAadhaarPublicSignalMismatchError ||
       err instanceof MockAadhaarAssertionInvalidError

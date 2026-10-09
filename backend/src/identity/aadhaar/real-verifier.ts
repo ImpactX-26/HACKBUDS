@@ -9,6 +9,7 @@
  * 2. Strict public key hash verification against trusted UIDAI RSA roots.
  *    FAIL-CLOSED: Test/staging keys require explicit opt-in (allowTestKeys: true)
  *    and are NEVER trusted silently by default.
+ *    Known test roots are strictly blocked from being registered as production roots.
  * 3. Enforces cryptographic binding between the proof's public signal and the
  *    worker's EVM wallet address and session challenge to prevent cross-session replay.
  *    Wallet-only signal binding is strictly rejected.
@@ -23,6 +24,7 @@
  * 6. NEVER stores raw Aadhaar numbers, QR payloads, or demographic records.
  * 7. Fails closed if verification key is missing or proof fails mathematical verification.
  * 8. Distinguishes genuine production status ('VERIFIED') from staging/unconfigured ('NOT_YET_VERIFIED').
+ *    Requires authenticated artifact provenance; arbitrary vkey objects or staging-only configs fail closed.
  * 9. NEVER falls back silently to mock verification.
  */
 
@@ -34,12 +36,14 @@ import {
   type VerifyAadhaarRequest,
   type VerifyAadhaarResult,
   type RealVerificationStatus,
+  type AnonAadhaarArtifactProvenance,
   AadhaarTrustMode,
   AadhaarTrustModeMismatchError,
   AnonAadhaarProofMalformedError,
   AnonAadhaarProofTamperedError,
   AnonAadhaarSignalBindingMismatchError,
   AnonAadhaarPubkeyNotTrustedError,
+  AnonAadhaarTestKeyAsProductionProhibitedError,
   AnonAadhaarVerificationKeyMissingError,
   AnonAadhaarPublicSignalMismatchError,
   BN254_SCALAR_FIELD_ORDER,
@@ -50,6 +54,7 @@ export interface RealAnonAadhaarVerifierOptions {
   verificationKey?: any; // Groth16 snarkjs verification key JSON
   trustedPubkeyHashes?: string[]; // Allowed production UIDAI public key hashes (string decimal or hex)
   allowTestKeys?: boolean; // Explicit test-only flag to accept Anon Aadhaar test/staging QR public key (defaults to false)
+  artifactProvenance?: AnonAadhaarArtifactProvenance; // Authenticated provenance metadata for genuine production verification
 }
 
 /**
@@ -57,6 +62,14 @@ export interface RealAnonAadhaarVerifierOptions {
  */
 export const ANON_AADHAAR_TEST_PUBKEY_HASH =
   '153344406208579485121408801822606821217596075402008436573802272506162804618';
+
+/**
+ * Known staging/test public key hashes.
+ * Security Invariant: These can NEVER be registered or treated as genuine production roots.
+ */
+export const KNOWN_TEST_PUBKEY_HASHES: ReadonlySet<string> = new Set([
+  ANON_AADHAAR_TEST_PUBKEY_HASH,
+]);
 
 /**
  * Official Anon Aadhaar v2 Public Signal Vector Schema & Indices:
@@ -80,18 +93,33 @@ export const ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT = 5;
 
 export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
   private verificationKey?: any;
+  private artifactProvenance?: AnonAadhaarArtifactProvenance;
   private productionPubkeyHashes: Set<string>;
   private testPubkeyHashes: Set<string>;
   private allowTestKeys: boolean;
 
   constructor(options: RealAnonAadhaarVerifierOptions = {}) {
     this.verificationKey = options.verificationKey;
+    this.artifactProvenance = options.artifactProvenance;
     // NON-NEGOTIABLE SECURITY GATE: Fail closed by default!
     // Staging / test public-key hashes MUST require explicit test-only configuration
     // and must NEVER silently be trusted in genuine production mode.
     this.allowTestKeys = options.allowTestKeys === true;
-    this.productionPubkeyHashes = new Set(options.trustedPubkeyHashes || []);
+    this.productionPubkeyHashes = new Set();
     this.testPubkeyHashes = new Set();
+
+    // Security Gate 1: Prevent known staging/test roots from being trusted as genuine production roots,
+    // even when supplied through trustedPubkeyHashes.
+    for (const rawHash of options.trustedPubkeyHashes || []) {
+      const clean = rawHash.trim();
+      if (KNOWN_TEST_PUBKEY_HASHES.has(clean)) {
+        if (this.allowTestKeys) {
+          this.testPubkeyHashes.add(clean);
+        }
+      } else {
+        this.productionPubkeyHashes.add(clean);
+      }
+    }
 
     if (this.allowTestKeys) {
       this.testPubkeyHashes.add(ANON_AADHAAR_TEST_PUBKEY_HASH);
@@ -104,22 +132,101 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
 
   /**
    * Returns genuine production verification status.
-   * If production trust keys or official circuit verification key are unconfigured,
-   * genuine real verification is accurately and explicitly marked 'NOT_YET_VERIFIED'.
+   * 
+   * Security Gate 2:
+   * - Cannot report VERIFIED from arbitrary verification-key objects.
+   * - Cannot report VERIFIED from staging-only issuer configuration.
+   * - Requires authenticated artifact provenance matching the verification key.
+   * - If genuine verification cannot be established, fails closed and reports 'NOT_YET_VERIFIED'.
    */
   public getVerificationStatus(): RealVerificationStatus {
-    if (this.verificationKey && this.productionPubkeyHashes.size > 0) {
-      return 'VERIFIED';
+    // 1. Must have genuine production issuer keys (staging-only config fails closed)
+    if (this.productionPubkeyHashes.size === 0) {
+      return 'NOT_YET_VERIFIED';
     }
-    return 'NOT_YET_VERIFIED';
+
+    // 2. Must have a verification key
+    if (!this.verificationKey) {
+      return 'NOT_YET_VERIFIED';
+    }
+
+    // 3. Must satisfy full structural Groth16 verification key schema
+    const vkey = this.verificationKey;
+    const isCompleteGroth16Vkey =
+      vkey &&
+      typeof vkey === 'object' &&
+      vkey.protocol === 'groth16' &&
+      vkey.curve === 'bn128' &&
+      Array.isArray(vkey.vk_alpha_1) &&
+      Array.isArray(vkey.vk_beta_2) &&
+      Array.isArray(vkey.vk_gamma_2) &&
+      Array.isArray(vkey.vk_delta_2) &&
+      Array.isArray(vkey.IC) &&
+      vkey.IC.length >= 6; // At least nPublic (5) + 1 IC points
+
+    if (!isCompleteGroth16Vkey) {
+      return 'NOT_YET_VERIFIED';
+    }
+
+    // 4. Must have authenticated artifact provenance establishing genuine official circuit authenticity
+    if (!this.artifactProvenance) {
+      return 'NOT_YET_VERIFIED';
+    }
+
+    const prov = this.artifactProvenance;
+    if (
+      !prov.circuit ||
+      !prov.releaseVersion ||
+      !prov.artifactHash ||
+      !prov.authority ||
+      prov.authority.toUpperCase().includes('TEST') ||
+      prov.authority.toUpperCase().includes('MOCK')
+    ) {
+      return 'NOT_YET_VERIFIED';
+    }
+
+    // Cryptographically validate that artifactHash matches SHA-256 of canonical verificationKey
+    try {
+      const vkeyJson = JSON.stringify(vkey);
+      const computedHash = crypto.createHash('sha256').update(vkeyJson, 'utf8').digest('hex');
+      if (prov.artifactHash.toLowerCase().trim() !== computedHash.toLowerCase().trim()) {
+        return 'NOT_YET_VERIFIED';
+      }
+    } catch {
+      return 'NOT_YET_VERIFIED';
+    }
+
+    return 'VERIFIED';
   }
 
-  public setVerificationKey(vkey: any): void {
+  public setVerificationKey(vkey: any, provenance?: AnonAadhaarArtifactProvenance): void {
     this.verificationKey = vkey;
+    if (provenance) {
+      this.artifactProvenance = provenance;
+    }
   }
 
+  public setArtifactProvenance(provenance: AnonAadhaarArtifactProvenance): void {
+    this.artifactProvenance = provenance;
+  }
+
+  /**
+   * Adds trusted issuer public key hash.
+   * Throws AnonAadhaarTestKeyAsProductionProhibitedError if caller attempts
+   * to register a known staging/test key as a production root.
+   */
   public addTrustedPubkeyHash(hash: string, isProduction: boolean = true): void {
     const clean = hash.trim();
+    if (KNOWN_TEST_PUBKEY_HASHES.has(clean)) {
+      if (isProduction) {
+        throw new AnonAadhaarTestKeyAsProductionProhibitedError(clean);
+      }
+      if (this.allowTestKeys) {
+        this.testPubkeyHashes.add(clean);
+      }
+      return;
+    }
+
     if (isProduction) {
       this.productionPubkeyHashes.add(clean);
     } else if (this.allowTestKeys) {
@@ -129,6 +236,10 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
 
   public isTrustedPubkeyHash(hash: string): boolean {
     const clean = hash.trim();
+    // Known test keys are NEVER trusted as production roots
+    if (KNOWN_TEST_PUBKEY_HASHES.has(clean)) {
+      return this.allowTestKeys && this.testPubkeyHashes.has(clean);
+    }
     if (this.productionPubkeyHashes.has(clean)) {
       return true;
     }
@@ -139,7 +250,7 @@ export class RealAnonAadhaarVerifier implements IAadhaarProofVerifier {
   }
 
   public isTestPubkeyHash(hash: string): boolean {
-    return this.testPubkeyHashes.has(hash.trim());
+    return this.testPubkeyHashes.has(hash.trim()) || KNOWN_TEST_PUBKEY_HASHES.has(hash.trim());
   }
 
   /**

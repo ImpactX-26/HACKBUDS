@@ -43,6 +43,8 @@ import {
   AnonAadhaarPubkeyNotTrustedError,
   AnonAadhaarVerificationKeyMissingError,
   AnonAadhaarPublicSignalMismatchError,
+  AnonAadhaarTestKeyAsProductionProhibitedError,
+  type AnonAadhaarArtifactProvenance,
   MockAadhaarAssertionInvalidError,
   deriveAnonAadhaarSessionSignal,
 } from '../src/identity/aadhaar/types.js';
@@ -50,6 +52,7 @@ import { MockAadhaarVerifier } from '../src/identity/aadhaar/mock-verifier.js';
 import {
   RealAnonAadhaarVerifier,
   ANON_AADHAAR_TEST_PUBKEY_HASH,
+  KNOWN_TEST_PUBKEY_HASHES,
   ANON_AADHAAR_V2_SIGNAL_INDEX,
   ANON_AADHAAR_V2_PUBLIC_SIGNALS_COUNT,
 } from '../src/identity/aadhaar/real-verifier.js';
@@ -724,17 +727,118 @@ describe('Worker Identity Onboarding & Phone Verification Suite', () => {
       );
     });
 
-    it('Mode A Real Verifier explicitly marks genuine production verification as NOT_YET_VERIFIED when unconfigured', () => {
-      // By default without pinned production roots and production vkey, real verification status is NOT_YET_VERIFIED
+    it('Security Gate 1: Prevents known staging/test roots from being trusted as genuine production roots', () => {
+      // Supplying known test pubkey hash even in trustedPubkeyHashes must NOT enter production roots
+      const verifierWithTestHash = new RealAnonAadhaarVerifier({
+        trustedPubkeyHashes: [ANON_AADHAAR_TEST_PUBKEY_HASH],
+        allowTestKeys: false,
+      });
+      assert.strictEqual(verifierWithTestHash.getVerificationStatus(), 'NOT_YET_VERIFIED');
+      assert.strictEqual(verifierWithTestHash.isTrustedPubkeyHash(ANON_AADHAAR_TEST_PUBKEY_HASH), false);
+
+      // Dynamically adding known test pubkey hash as production MUST throw AnonAadhaarTestKeyAsProductionProhibitedError
+      assert.throws(
+        () => verifierWithTestHash.addTrustedPubkeyHash(ANON_AADHAAR_TEST_PUBKEY_HASH, true),
+        AnonAadhaarTestKeyAsProductionProhibitedError
+      );
+
+      // Verify for all known test keys
+      for (const testKey of KNOWN_TEST_PUBKEY_HASHES) {
+        assert.throws(
+          () => verifierWithTestHash.addTrustedPubkeyHash(testKey, true),
+          AnonAadhaarTestKeyAsProductionProhibitedError
+        );
+      }
+    });
+
+    it('Security Gate 2: getVerificationStatus() fails closed on arbitrary vkeys, staging configs, or unauthenticated provenance', () => {
+      // 1. Unconfigured verifiers fail closed
       assert.strictEqual(defaultRealVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
       assert.strictEqual(testRealVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
 
-      // Only when BOTH production verification key AND production pubkey hash are configured does it become VERIFIED
-      const mockProductionVerifier = new RealAnonAadhaarVerifier({
+      const dummyProductionHash = '12345678901234567890';
+
+      // 2. Arbitrary vkey object (e.g. { protocol: 'groth16' }) without structure/provenance fails closed
+      const arbitraryVkeyVerifier = new RealAnonAadhaarVerifier({
         verificationKey: { protocol: 'groth16' },
-        trustedPubkeyHashes: ['12345678901234567890'],
+        trustedPubkeyHashes: [dummyProductionHash],
       });
-      assert.strictEqual(mockProductionVerifier.getVerificationStatus(), 'VERIFIED');
+      assert.strictEqual(arbitraryVkeyVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // 3. Staging-only issuer configuration fails closed
+      const stagingOnlyVerifier = new RealAnonAadhaarVerifier({
+        allowTestKeys: true,
+        trustedPubkeyHashes: [ANON_AADHAAR_TEST_PUBKEY_HASH],
+      });
+      assert.strictEqual(stagingOnlyVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // 4. Structurally valid Groth16 vkey but missing authenticated artifact provenance fails closed
+      const validStructuralVkey = {
+        protocol: 'groth16',
+        curve: 'bn128',
+        nPublic: 5,
+        vk_alpha_1: ['1', '2', '1'],
+        vk_beta_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        vk_gamma_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        vk_delta_2: [['1', '2'], ['3', '4'], ['1', '0']],
+        IC: [
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+          ['1', '2', '1'],
+        ],
+      };
+
+      const missingProvenanceVerifier = new RealAnonAadhaarVerifier({
+        verificationKey: validStructuralVkey,
+        trustedPubkeyHashes: [dummyProductionHash],
+      });
+      assert.strictEqual(missingProvenanceVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // 5. Mismatched artifactHash in provenance fails closed
+      const mismatchedProvenanceVerifier = new RealAnonAadhaarVerifier({
+        verificationKey: validStructuralVkey,
+        trustedPubkeyHashes: [dummyProductionHash],
+        artifactProvenance: {
+          circuit: 'anon-aadhaar-v2',
+          releaseVersion: 'v2.0.0',
+          artifactHash: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+          authority: 'UIDAI Anon Aadhaar Production Registry',
+          verifiedAt: 1700000000,
+        },
+      });
+      assert.strictEqual(mismatchedProvenanceVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // 6. Test/mock authority in provenance fails closed
+      const testAuthorityHash = crypto.createHash('sha256').update(JSON.stringify(validStructuralVkey), 'utf8').digest('hex');
+      const testAuthorityVerifier = new RealAnonAadhaarVerifier({
+        verificationKey: validStructuralVkey,
+        trustedPubkeyHashes: [dummyProductionHash],
+        artifactProvenance: {
+          circuit: 'anon-aadhaar-v2',
+          releaseVersion: 'v2.0.0',
+          artifactHash: testAuthorityHash,
+          authority: 'Staging Test Registry',
+          verifiedAt: 1700000000,
+        },
+      });
+      assert.strictEqual(testAuthorityVerifier.getVerificationStatus(), 'NOT_YET_VERIFIED');
+
+      // 7. Complete valid structural vkey + genuine production pubkey hash + authentic matching provenance reports VERIFIED
+      const genuineVerifier = new RealAnonAadhaarVerifier({
+        verificationKey: validStructuralVkey,
+        trustedPubkeyHashes: [dummyProductionHash],
+        artifactProvenance: {
+          circuit: 'anon-aadhaar-v2',
+          releaseVersion: 'v2.0.0',
+          artifactHash: testAuthorityHash,
+          authority: 'Official UIDAI Anon Aadhaar Mainnet Release',
+          verifiedAt: 1700000000,
+        },
+      });
+      assert.strictEqual(genuineVerifier.getVerificationStatus(), 'VERIFIED');
     });
 
     it('Mode A Real Verifier executes snarkjs.groth16.verify and rejects tampered proof', async () => {

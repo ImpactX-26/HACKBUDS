@@ -23,11 +23,14 @@ export {
 };
 
 import crypto from 'node:crypto';
-import { FIELD } from './poseidon5.js';
+import { FIELD, BN254_FR_SCALAR, BN254_FQ_BASE } from './poseidon5.js';
+
+export { BN254_FR_SCALAR, BN254_FQ_BASE };
 
 /**
- * BN254 / alt_bn128 scalar field modulus:
- * r = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+ * BN254 / alt_bn128 scalar field modulus (Fr):
+ * r = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+ * Strictly used for circuit wires, Poseidon inputs, and EvidenceSnapshot commitment calculations.
  */
 export const BN254_SCALAR_FIELD_MODULUS = FIELD;
 
