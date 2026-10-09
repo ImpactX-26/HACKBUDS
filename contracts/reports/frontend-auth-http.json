@@ -1,0 +1,18 @@
+{
+  "localOnly": true,
+  "syntheticOnly": true,
+  "origin": "http://localhost:3200",
+  "passed": 10,
+  "results": [
+    "unauthenticated prove rejects copied public holder address",
+    "unauthenticated claim rejects copied public holder address",
+    "unauthenticated borrow rejects copied public holder address",
+    "unauthenticated repay rejects copied public holder address",
+    "cross-origin challenge rejected",
+    "fabricated login signature rejected",
+    "real wallet login creates HttpOnly strict cookie",
+    "login nonce replay rejected",
+    "exact live worker approval is genuinely signed; policy endpoint never approves",
+    "authenticated caller still cannot use dummy approval"
+  ]
+}
