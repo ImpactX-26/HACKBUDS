@@ -1,0 +1,195 @@
+/**
+ * GigVault - Deterministic Calendar & Time-Bucket Aggregator
+ * 
+ * Aggregates recognized gig transactions into locked EvidenceSnapshot arrays:
+ * - monthlyGigIncomeTotals[36]: 36 fully completed UTC calendar months (paise)
+ * - monthlyActivity[36]: 36 fully completed UTC calendar months (binary 0/1)
+ * - weeklyActivity[156]: 156 fully completed ISO Monday-Sunday weeks (binary 0/1)
+ * 
+ * Strict invariants:
+ * - Buckets are ordered OLDEST (index 0) to NEWEST (index 35 or 155).
+ * - Partial current month and current week are strictly EXCLUDED.
+ * - Missing/empty periods have value 0.
+ * - Income values are non-negative integer paise.
+ */
+
+import type { ClassifiedTransaction } from './classifier.js';
+
+export interface MonthBucket {
+  index: number;
+  year: number;
+  month: number; // 1-12
+  startTs: number; // Unix seconds (inclusive)
+  endTs: number; // Unix seconds (exclusive)
+  incomePaise: number;
+  activity: 0 | 1;
+}
+
+export interface WeekBucket {
+  index: number;
+  startTs: number; // Monday 00:00:00 UTC (inclusive)
+  endTs: number; // Next Monday 00:00:00 UTC (exclusive)
+  activity: 0 | 1;
+}
+
+export interface CalendarAggregationResult {
+  monthlyGigIncomeTotals: number[]; // 36 integers (paise)
+  monthlyActivity: Array<0 | 1>; // 36 flags (0 | 1)
+  weeklyActivity: Array<0 | 1>; // 156 flags (0 | 1)
+  verifiedHistoryStartDate: number; // UTC Unix epoch days
+  evidenceUpdatedAt: number; // Unix seconds (reference cutoff)
+  monthBuckets: MonthBucket[];
+  weekBuckets: WeekBucket[];
+}
+
+/**
+ * Compute 36 completed UTC calendar month intervals relative to cutoff.
+ * Oldest to newest.
+ */
+export function getCompletedMonthIntervals(cutoffTs: number): MonthBucket[] {
+  const cutoffDate = new Date(cutoffTs * 1000);
+  const cutoffYear = cutoffDate.getUTCFullYear();
+  const cutoffMonth = cutoffDate.getUTCMonth(); // 0-indexed (0 = Jan, ..., 11 = Dec)
+
+  // Latest completed month is cutoffMonth - 1
+  // We need 36 completed months, ending at (cutoffYear, cutoffMonth - 1)
+  const buckets: MonthBucket[] = [];
+
+  for (let i = 0; i < 36; i++) {
+    // offset: index 35 has offset 0 (latest completed month), index 0 has offset 35 (oldest)
+    const offsetFromLatest = 35 - i;
+    const totalMonthsBack = offsetFromLatest + 1; // +1 because current month is partial and excluded
+
+    // Calculate year and month for this bucket
+    let targetYear = cutoffYear;
+    let targetMonth = cutoffMonth - totalMonthsBack;
+    while (targetMonth < 0) {
+      targetMonth += 12;
+      targetYear -= 1;
+    }
+
+    const startTs = Date.UTC(targetYear, targetMonth, 1, 0, 0, 0) / 1000;
+    // End is start of next month
+    let nextMonth = targetMonth + 1;
+    let nextYear = targetYear;
+    if (nextMonth >= 12) {
+      nextMonth = 0;
+      nextYear += 1;
+    }
+    const endTs = Date.UTC(nextYear, nextMonth, 1, 0, 0, 0) / 1000;
+
+    buckets.push({
+      index: i,
+      year: targetYear,
+      month: targetMonth + 1, // 1-indexed for readability
+      startTs,
+      endTs,
+      incomePaise: 0,
+      activity: 0,
+    });
+  }
+
+  return buckets;
+}
+
+/**
+ * Compute 156 completed ISO Monday-Sunday week intervals relative to cutoff.
+ * Oldest to newest.
+ */
+export function getCompletedWeekIntervals(cutoffTs: number): WeekBucket[] {
+  const cutoffDate = new Date(cutoffTs * 1000);
+  const cutoffYear = cutoffDate.getUTCFullYear();
+  const cutoffMonth = cutoffDate.getUTCMonth();
+  const cutoffDay = cutoffDate.getUTCDate();
+
+  // UTC midnight of cutoff day
+  const midnightSec = Date.UTC(cutoffYear, cutoffMonth, cutoffDay, 0, 0, 0) / 1000;
+
+  // Day of week: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const dayOfWeek = cutoffDate.getUTCDay();
+  const isoDay = dayOfWeek === 0 ? 7 : dayOfWeek; // Monday = 1, ..., Sunday = 7
+
+  // Monday 00:00:00 UTC of current week
+  const currentWeekMondaySec = midnightSec - (isoDay - 1) * 86400;
+
+  const buckets: WeekBucket[] = [];
+
+  for (let i = 0; i < 156; i++) {
+    // index 155 is latest completed week (offset 0), index 0 is oldest (offset 155)
+    const offsetFromLatest = 155 - i;
+    const endTs = currentWeekMondaySec - offsetFromLatest * 7 * 86400;
+    const startTs = endTs - 7 * 86400;
+
+    buckets.push({
+      index: i,
+      startTs,
+      endTs,
+      activity: 0,
+    });
+  }
+
+  return buckets;
+}
+
+/**
+ * Aggregate classified transactions into deterministic 36-month and 156-week arrays.
+ */
+export function aggregateEvidenceCalendar(
+  classifiedTxns: ClassifiedTransaction[],
+  cutoffTs: number
+): CalendarAggregationResult {
+  const monthBuckets = getCompletedMonthIntervals(cutoffTs);
+  const weekBuckets = getCompletedWeekIntervals(cutoffTs);
+
+  // Filter only COUNTED gig income transactions on or before cutoff
+  const gigTxns = classifiedTxns
+    .filter((t) => t.isGigIncome && t.raw.timestamp <= cutoffTs)
+    .sort((a, b) => a.raw.timestamp - b.raw.timestamp);
+
+  // Find earliest verified work start date (UTC days since epoch)
+  let verifiedHistoryStartDate = 0;
+  if (gigTxns.length > 0) {
+    verifiedHistoryStartDate = Math.floor(gigTxns[0].raw.timestamp / 86400);
+  }
+
+  // Populate month buckets using exact integer BigInt arithmetic
+  const UINT64_MAX = 18446744073709551615n;
+  for (const txn of gigTxns) {
+    const ts = txn.raw.timestamp;
+    for (const mb of monthBuckets) {
+      if (ts >= mb.startTs && ts < mb.endTs) {
+        const sum = BigInt(mb.incomePaise) + BigInt(txn.raw.amountMinor);
+        if (sum > UINT64_MAX) {
+          throw new Error('Monetary overflow: monthly gig income total exceeds uint64 max');
+        }
+        if (sum > BigInt(Number.MAX_SAFE_INTEGER)) {
+          throw new Error('Monetary precision limit exceeded: monthly income exceeds Number.MAX_SAFE_INTEGER');
+        }
+        mb.incomePaise = Number(sum);
+        mb.activity = 1;
+        break;
+      }
+    }
+  }
+
+  // Populate week buckets
+  for (const txn of gigTxns) {
+    const ts = txn.raw.timestamp;
+    for (const wb of weekBuckets) {
+      if (ts >= wb.startTs && ts < wb.endTs) {
+        wb.activity = 1;
+        break;
+      }
+    }
+  }
+
+  return {
+    monthlyGigIncomeTotals: monthBuckets.map((b) => b.incomePaise),
+    monthlyActivity: monthBuckets.map((b) => b.activity),
+    weeklyActivity: weekBuckets.map((b) => b.activity),
+    verifiedHistoryStartDate,
+    evidenceUpdatedAt: cutoffTs,
+    monthBuckets,
+    weekBuckets,
+  };
+}

@@ -1,12 +1,25 @@
-import { buildPoseidon } from 'circomlibjs';
-
-// Fr and v0.2 profile approved by the user; tags/order remain PROVISIONAL.
-// This limited correction is not approval of the complete shared wire protocol.
+// Backend B shared PROPOSAL adapter. Profile v0.2.0 aligns scalar field operations with BN254 Fr.
 export const PROFILE = 'gv-poseidon-hash-only-0.2.0';
-// BN254 scalar field order (Fr). Circuit wires, Poseidon states and public signals must live in Fr.
-export const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-export const BN254_SCALAR_FIELD_ORDER = FIELD;
-export const BN254_BASE_FIELD_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+export const LEGACY_PROFILE_V0_1 = 'gv-poseidon-hash-only-0.1.0';
+
+/**
+ * BN254 Scalar Field Fr (group order r):
+ * 21888242871839275222246405745257275088548364400416034343698204186575808495617
+ * Circuit wires, Poseidon inputs, and proof public signals live strictly in Fr.
+ */
+export const BN254_FR_SCALAR = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+/**
+ * BN254 Base Field Fq (prime modulus q):
+ * 21888242871839275222246405745257275088696311157297823662689037894645226208583
+ * Preserved for elliptic curve base-field / coordinate operations (unchanged).
+ */
+export const BN254_FQ_BASE = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+
+/**
+ * Evidence commitment scalar operations strictly use BN254 Fr.
+ */
+export const FIELD = BN254_FR_SCALAR;
 export const TAGS = Object.freeze({
   income: Object.freeze([1100n, 1101n, 1102n]),
   weekly: Object.freeze([1200n, 1201n, 1202n, 1203n]),
@@ -58,8 +71,23 @@ export function validate(input: HashInput): void {
   }
 }
 
-export async function createProvisionalPoseidon() {
-  const poseidon = await buildPoseidon();
+export async function createProvisionalPoseidon(customBuildPoseidon?: any) {
+  let poseidon: any;
+  if (customBuildPoseidon) {
+    poseidon = await customBuildPoseidon();
+  } else {
+    let bp: any;
+    try {
+      // @ts-ignore
+      const mod = await import('circomlibjs');
+      bp = mod.buildPoseidon;
+    } catch {
+      // @ts-ignore
+      const mod = await import('../../backend/node_modules/circomlibjs/main.js');
+      bp = mod.buildPoseidon;
+    }
+    poseidon = await bp();
+  }
   const h5 = (values: readonly Scalar[]): bigint => {
     if (values.length !== 5) throw new Error('H5 requires tag and four children');
     return BigInt(poseidon.F.toObject(poseidon(Array.from(values, field))));
@@ -89,3 +117,4 @@ export async function createProvisionalPoseidon() {
   };
   return {h5, tree4, commit};
 }
+export const BN254_SCALAR_FIELD_ORDER = BN254_FR_SCALAR; export const BN254_BASE_FIELD_MODULUS = BN254_FQ_BASE;

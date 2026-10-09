@@ -1,0 +1,76 @@
+/**
+ * GigVault - Mock Bank / FIP Types
+ * 
+ * Defines schemas for raw transaction provenance, account ownership,
+ * consent records, and cryptographically signed envelopes.
+ */
+
+export type PaymentRail = 'UPI' | 'IMPS' | 'NEFT' | 'RTGS';
+export type TransactionDirection = 'CREDIT' | 'DEBIT';
+export type ConsentStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+export interface RemitterMetadata {
+  name?: string;
+  account?: string;
+  vpa?: string;
+  ifsc?: string;
+}
+
+export interface RawTransaction {
+  txnId: string;
+  timestamp: number; // UTC Unix seconds (integer)
+  amountMinor: number; // Integer paise (nonnegative, no floats)
+  currency: 'INR';
+  direction: TransactionDirection;
+  rail: PaymentRail;
+  remitter: RemitterMetadata;
+  reference: string; // UTR / RRN / processor reference
+  narration: string; // Human-readable bank statement narration
+}
+
+export interface AccountOwnerBinding {
+  accountId: string;
+  ownerName: string;
+  identityNullifierHash: string; // Stable app-scoped identity nullifier (e.g. from Anon Aadhaar)
+  verifiedAt: number; // Unix seconds
+}
+
+export interface ConsentScope {
+  accountId: string;
+  fromTimestamp: number; // Unix seconds
+  toTimestamp: number; // Unix seconds
+  dataTypes: Array<'TRANSACTIONS' | 'PROFILE'>;
+}
+
+export interface ConsentRecord {
+  consentId: string;
+  accountId: string;
+  authorizedIdentityNullifier: string;
+  authorizedWalletAddress?: string;
+  status: ConsentStatus;
+  scope: ConsentScope;
+  createdAt: number;
+  expiresAt: number;
+  revokedAt?: number;
+}
+
+export interface SignedFIPPayload {
+  schemaVersion: 'GIGVAULT_FIP_MOCK_V1';
+  fipId: string;
+  consentId: string;
+  accountId: string;
+  accountOwnerBinding: AccountOwnerBinding;
+  dataRange: {
+    fromTimestamp: number;
+    toTimestamp: number;
+  };
+  transactions: RawTransaction[];
+  generatedAt: number;
+}
+
+export interface SignedFIPEnvelope {
+  payload: SignedFIPPayload;
+  payloadHash: string; // Hex SHA-256 of canonical payload string
+  signature: string; // secp256k1 signature (hex)
+  fipPublicKey: string; // FIP public key (hex uncompressed / compressed)
+}
