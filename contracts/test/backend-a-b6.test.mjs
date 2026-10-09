@@ -4,6 +4,7 @@ import {writeFileSync,mkdirSync,existsSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createBackendAIntegration} from '../integration/backend-a-session.mjs';
 import {createBackendAPassportClient} from '../integration/backend-a-passport.mjs';
+import {backendACommit} from '../integration/backend-a-source.mjs';
 let h,started,L,W,loan,welfare;
 const passed=[],receipts=[];let failures=0;
 const run=(name,fn)=>test(name,async()=>{try{await fn();passed.push(name);}catch(e){failures++;throw e;}});
@@ -13,7 +14,7 @@ after(async()=>{
   if(!h)return;const stats=h.session.stats,passport=await h.api.getPassport(h.passportId),state=await h.api.getIdentityState(h.passportId);
   const sourceManifest=h.sourceManifest,addresses=Object.fromEntries(Object.entries(h.session.bundle.contracts).map(([k,v])=>[k,v.address]));
   const mintReceipts=[...h.passportClient.receipts];await h.close();assert.equal(existsSync(h.session.bundlePath),false);
-  mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/b6-backend-a-local.json'),JSON.stringify({
+  mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/v02-backend-a-local.json'),JSON.stringify({
     localOnly:true,syntheticOnly:true,backendASourceExecuted:true,backendALiveServiceConnected:false,protocolApproved:false,
     sourceManifest,passed:passed.length,failed:failures,testNames:passed,realProofs:stats.realProofs,proofMetrics:stats.proofMetrics,
     reconstructionCalls:h.reconstructionCalls,elapsedSeconds:(performance.now()-started)/1000,addresses,passport,
@@ -25,7 +26,7 @@ async function request(consumer,options={}){
   const signed=await h.signedRequest(consumer,options);signed.evidenceHandle=await handle();return h.approve(signed);
 }
 run('pinned actual A consent/FIP/Poseidon orchestration mints real passport through B transport',async()=>{
-  assert.equal(h.sourceManifest.commit,'c765b2d7f014d702af3c8ee0d0e391055e05d840');assert.equal(h.sourceManifest.files.length,36);
+  assert.equal(h.sourceManifest.commit,backendACommit);assert.equal(h.sourceManifest.files.length,36);
   assert.equal(h.passportClient.isMockClient,false);assert.equal(h.passportId,'2');
   const p=await h.api.getPassport(h.passportId);assert.equal(p.status,'ACTIVE');assert.equal(p.evidenceVersion,'1');
   assert.equal(p.holderWallet.toLowerCase(),h.worker.address.toLowerCase());assert.equal(p.identityNullifierHash,h.identity);

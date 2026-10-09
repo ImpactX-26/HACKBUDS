@@ -17,7 +17,7 @@ function payload(){return {groth16Proof:{pi_a:['1','2'],pi_b:[['1','2'],['3','4'
   pubkeyHash:TEST,nullifier:'1',nullifierSeed:'42',timestamp:1,signal:signal(base.sessionId,base.expectedChallenge,wallet)};}
 const passed=[],failed=[];
 const run=(name,fn)=>test(name,async()=>{try{await fn();passed.push(name);}catch(e){failed.push(name);throw e;}});
-after(()=>writeFileSync('reports/b6-trust-reconciliation.json',JSON.stringify({sourceCommit:manifest.commit,
+after(()=>writeFileSync('reports/v02-a-trust-reconciliation.json',JSON.stringify({sourceCommit:manifest.commit,
   realAadhaarProofs:0,realAadhaarIntegrationVerified:false,passed:passed.length,failed:failed.length,passedTests:passed,
   failedTests:failed,scope:'Upstream mode/pre-cryptographic guards and configuration classification; no real Aadhaar artifacts or credentials'},null,2)+'\n'));
 

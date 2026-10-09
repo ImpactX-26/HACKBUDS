@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "score:test": "node --test test/gig-score.test.mjs",
     "test": "node --test test/GigPassport.test.mjs",
     "auth:test": "node --test test/authorization-v02.test.mjs test/policy-solidity-v02.test.mjs",
     "prover:test": "node --test test/trusted-prover-b4.test.mjs",

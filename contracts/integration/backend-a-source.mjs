@@ -5,7 +5,7 @@ import {dirname,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import ts from '../../circuits/node_modules/typescript/lib/typescript.js';
 
-export const backendACommit='c765b2d7f014d702af3c8ee0d0e391055e05d840';
+export const backendACommit='b43b17084aea375a0c4bc59c53349d9f6a170396';
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const root=resolve(repo,'contracts/artifacts/backend-a-b6',backendACommit);
 function git(args){const result=spawnSync('git',args,{cwd:repo,windowsHide:true,maxBuffer:8*1024*1024});
