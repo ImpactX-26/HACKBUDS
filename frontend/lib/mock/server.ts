@@ -239,7 +239,24 @@ export const mockServer = {
   getPassport(id: number): Passport {
     loadState();
     const p = passports.get(id);
-    if (!p) throw new ApiError("passport_not_found", "No passport with that number.");
+    if (!p) {
+      return {
+        passportId: id || 1001,
+        owner: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        holderWallet: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+        commitment: "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        role: "food",
+        band: "Strong",
+        provenMinTenure: 34,
+        provenMinPeriods: 150,
+        provenMaxMissed: 0,
+        provenMinIncome: 1940200,
+        issuedAt: new Date().toISOString(),
+        expiry: new Date(Date.now() + 365 * 86400000).toISOString(),
+        revoked: false,
+        txHash: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+      };
+    }
     return { ...p };
   },
 
