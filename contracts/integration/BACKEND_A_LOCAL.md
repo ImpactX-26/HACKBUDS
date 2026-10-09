@@ -1,5 +1,12 @@
 # B6 — actual Backend A runtime → local Backend B
 
+Current B uses approved Fr profile `gv-poseidon-hash-only-0.2.0` and passport
+schemaVersion 2. Pinned A c765b2d7 still uses the old evidence mapping and schema 1;
+its prior ten-test financial report is historical v0.1 evidence. The unchanged
+B6 test remains preserved for rerun after A publishes corrected code. Do not run
+the old flow and label it v0.2, or rewrite A's cached blobs to make it pass.
+Current B validation/dependency: `docs/review/BACKEND_B_FR_V0_2.md`.
+
 This harness executes A's published financial pipeline unchanged, in process,
 against B's actual deployment and real Groth16 engine. It uses A's synthetic
 Ramesh bank records and Mock IDP. It does not connect a separately running A HTTP
@@ -16,11 +23,17 @@ npm run integration:a:test
 ```
 
 Prepare fetches public Git objects from `Manas150706/HACKBUDS`, commit
-`d71c66f88ce8bc6d43c739be41a29b5077e66b22`. It verifies 32 required TypeScript
+`c765b2d7f014d702af3c8ee0d0e391055e05d840`. It verifies 36 required TypeScript
 blobs and transpiles them into ignored `contracts/artifacts/backend-a-b6/`.
 No A branch/checkout is changed and no A financial pipeline is copied into B's
 committed source. Dependency junctions select existing ethers 6.15 and circomlibjs
-0.1.7; upstream logic is not patched. This is not a full A build/test claim.
+0.1.7 and snarkjs 0.7.5; upstream logic is not patched. Type-only imports are
+elided consistently with A's tsconfig. This is not a full A build/test claim.
+
+The focused reconciliation adds `npm run integration:a:trust`. This intentionally
+fails on unresolved upstream security invariants; see
+`docs/review/BACKEND_B_B6_COMPATIBILITY_RECONCILIATION.md`. A working synthetic
+financial flow is not approval of the real-Aadhaar or shared scalar boundaries.
 
 The test executes the continuous demonstration and negative gates. The demo
 command is an alias for the same test, not a second independently measured result.

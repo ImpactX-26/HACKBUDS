@@ -8,7 +8,7 @@ import { calculator, decimal, encoded, outputs, root } from './runtime.js';
 
 const hashes = await createProvisionalPoseidon();
 const wasm = await calculator();
-const golden = JSON.parse(readFileSync(resolve(root, 'fixtures/provisional-vectors.json'), 'utf8'));
+const golden = JSON.parse(readFileSync(resolve(root, 'fixtures/provisional-v02-vectors.json'), 'utf8'));
 const expected = hashes.commit(baseline());
 assert.equal(golden.profile, PROFILE);
 assert.equal(golden.status, 'PROVISIONAL SYNTHETIC HASH-ONLY; NOT AUTHENTICATED FINANCIAL EVIDENCE');

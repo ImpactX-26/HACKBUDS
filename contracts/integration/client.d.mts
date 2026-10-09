@@ -2,7 +2,8 @@ import type {AbstractProvider,Signer,InterfaceAbi,TypedDataDomain,TypedDataField
 import type {ProofRequest,ProofResult} from '../../circuits/service/trusted-prover.mjs';
 export interface IntegrationBundle {
   bundleVersion: 'gv-local-integration-b5/1'; protocolVersion: 'gv-local-prover-b4/1';
-  eligibilityProfile: 'gv-eligibility-0.2-provisional'; commitmentProfile: 'gv-poseidon-hash-only-0.1.0';
+  eligibilityProfile: 'gv-eligibility-0.2-provisional'; commitmentProfile: 'gv-poseidon-hash-only-0.2.0';
+  evidenceSchemaVersion: '2';
   localOnly: true; syntheticOnly: true; chainId: 1337; rpcUrl: string; setupId: string; publicSignalOrder: string[];
   contracts: Record<'passport'|'math'|'gate'|'welfare'|'loan'|'token',{address:string;abi:InterfaceAbi;contract:string}>;
   fixture: {passportId:string;holder:string;identity:string;source:string;evidenceHandle:string};

@@ -14,7 +14,7 @@ const hashes=await createProvisionalPoseidon();
 const holder=Wallet.createRandom(),verifier=Wallet.createRandom(),other=Wallet.createRandom();
 const now=1791504000n,domain=domainFor(1337,Wallet.createRandom().address);
 const s=snapshot({passportId:1n,holderBinding:BigInt(holder.address),evidenceUpdatedAt:now-100n});
-const passport={holderWallet:holder.address,status:0n,schemaVersion:1n,evidenceVersion:1n,evidenceUpdatedAt:s.evidenceUpdatedAt,
+const passport={holderWallet:holder.address,status:0n,schemaVersion:2n,evidenceVersion:1n,evidenceUpdatedAt:s.evidenceUpdatedAt,
   evidenceCommitment:hashes.commit(s).evidenceCommitment,sourceDirectoryVersion:s.sourceDirectoryVersion};
 const policy={requestId:id('B4_INTERFACE_TEST'),verifierId:verifier.address,incomeEnabled:1,incomeWindowMonths:6,
   minAverageIncomePaise:2000000,activityEnabled:1,activityIsWeekly:0,activityWindow:12,minActivePeriods:9,
@@ -22,7 +22,7 @@ const policy={requestId:id('B4_INTERFACE_TEST'),verifierId:verifier.address,inco
 const request={protocolVersion,eligibilityProfile,consumer:'loan',passportId:'1',evidenceHandle:'authenticated-private-capability',policy,
   verifierSignature:await verifier.signTypedData(domain,policyTypes,policy),
   workerSignature:await holder.signTypedData(domain,approvalTypes,approvalFor(policy,'1',passport,domain))};
-const envelope=()=>({protocolVersion,eligibilityProfile,commitmentProfile:PROFILE,schemaVersion:'1',evidenceVersion:'1',snapshot:structuredClone(s)});
+const envelope=()=>({protocolVersion,eligibilityProfile,commitmentProfile:PROFILE,schemaVersion:'2',evidenceVersion:'1',snapshot:structuredClone(s)});
 function harness({state={},evidence=envelope(),engine}={}) {
   let reads=0,proofs=0;
   const prover=createTrustedProver({setupId:'unit-test-no-key',hashes,
@@ -51,11 +51,14 @@ for(const [label,state]of [['revoked',{passport:{...passport,status:1n}}],['stal
   test(label+' rejects before evidence access',async()=>{const h=harness({state});await assert.rejects(()=>h.prover.prove(request));assert.equal(h.reads,0);});
 }
 test('unsupported passport schema rejects before evidence access',async()=>{
-  const h=harness({state:{passport:{...passport,schemaVersion:2n}}});
+  const h=harness({state:{passport:{...passport,schemaVersion:1n}}});
   await assert.rejects(()=>h.prover.prove(request));assert.equal(h.reads,0);
 });
 for(const [label,modify]of [['unsupported evidence profile',e=>e.commitmentProfile='other'],
-  ['schema version',e=>e.schemaVersion='2'],['evidence version',e=>e.evidenceVersion='2'],
+  ['legacy v0.1 profile',e=>e.commitmentProfile='gv-poseidon-hash-only-0.1.0'],
+  ['Fr alias provider',e=>e.snapshot.evidenceProviderId='21888242871839275222246405745257275088548364400416034343698204186575808495617'],
+  ['Fr alias digest',e=>e.snapshot.evidenceDataHash='21888242871839275222246405745257275088548364400416034343698204186575808495617'],
+  ['schema version',e=>e.schemaVersion='1'],['evidence version',e=>e.evidenceVersion='2'],
   ['amount overflow',e=>e.snapshot.monthlyGigIncomeTotals[0]=1n<<64n],
   ['amount negative',e=>e.snapshot.monthlyGigIncomeTotals[0]=-1n],
   ['unsafe numeric amount',e=>e.snapshot.monthlyGigIncomeTotals[0]=Number.MAX_SAFE_INTEGER+1],
@@ -88,7 +91,7 @@ function aPayload() {
     expectedPublicSignals:{passportId:1,holderBinding:holder.address,evidenceCommitment:commitment,sourceDirectoryVersion:1},createdAt:Number(now)};
 }
 test('Backend A field renaming preserves exact committed meaning',()=>{
-  const p=aPayload(),e=translateBackendAWitness(p,{schemaVersion:'1',evidenceVersion:'1'},hashes);
+  const p=aPayload(),e=translateBackendAWitness(p,{schemaVersion:'2',evidenceVersion:'1'},hashes);
   assert.equal(hashes.commit(e.snapshot).evidenceCommitment.toString(),p.snapshot.evidenceCommitment);
 });
 for(const [label,modify]of [['contradictory dual witness',p=>p.circuitInputs.monthlyGigIncomeTotalsPaise[0]='1'],
@@ -96,8 +99,11 @@ for(const [label,modify]of [['contradictory dual witness',p=>p.circuitInputs.mon
   ['unsafe amount',p=>p.snapshot.monthlyGigIncomeTotals[0]=Number.MAX_SAFE_INTEGER+1],
   ['incorrect expected commitment',p=>p.expectedPublicSignals.evidenceCommitment='1']]) {
   test('Backend A translation rejects '+label,()=>{const p=aPayload();modify(p);
-    assert.throws(()=>translateBackendAWitness(p,{schemaVersion:'1',evidenceVersion:'1'},hashes));});
+    assert.throws(()=>translateBackendAWitness(p,{schemaVersion:'2',evidenceVersion:'1'},hashes));});
 }
+test('Backend A translation refuses legacy chain schema without relabeling',()=>{
+  assert.throws(()=>translateBackendAWitness(aPayload(),{schemaVersion:'1',evidenceVersion:'1'},hashes),/schemaVersion 2/);
+});
 test('isolated engine failure and timeout create no private files',async()=>{
   const parent=resolve('artifacts');const {mkdirSync}=await import('node:fs');mkdirSync(parent,{recursive:true});
   const temp=mkdtempSync(resolve(parent,'engine-test-'));

@@ -19,5 +19,5 @@ mkdirSync('fixtures', {recursive: true});
 const record = {status: 'PROVISIONAL SYNTHETIC HASH-ONLY; NOT AUTHENTICATED FINANCIAL EVIDENCE',
   profile: PROFILE, toolchain: {circom: '2.2.3', circomlib: '2.0.5', circomlibjs: '0.1.7', snarkjs: '0.7.5'},
   baselineInput: baseline(), vectors};
-writeFileSync(resolve('fixtures', 'provisional-vectors.json'), JSON.stringify(JSON.parse(decimal(record)), null, 2)+'\n');
+writeFileSync(resolve('fixtures', 'provisional-v02-vectors.json'), JSON.stringify(JSON.parse(decimal(record)), null, 2)+'\n');
 console.log(`Recorded ${Object.keys(vectors).length} vectors only after exact TypeScript/compiled Circom parity.`);

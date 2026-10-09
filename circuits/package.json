@@ -6,7 +6,9 @@
   "scripts": {
     "setup:circom": "node scripts/setup-circom.mjs",
     "build": "node scripts/build.mjs && node scripts/prepare-upstream.mjs && tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js",
+    "test": "npm run build && node --test dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js test/fr-v02.test.mjs",
+    "fr:record": "npm run build && node scripts/record-vectors.mjs && node test/fr-v02.test.mjs --record",
+    "fr:test": "npm run build && node --test test/fr-v02.test.mjs",
     "fixtures:record": "npm run build && node scripts/record-vectors.mjs",
     "proof:smoke": "npm run build && node scripts/groth16-smoke.mjs",
     "gate1:record": "npm run build && node scripts/record-backend-a.mjs",

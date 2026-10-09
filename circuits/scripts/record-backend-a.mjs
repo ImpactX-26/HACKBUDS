@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { root } from './toolchain.mjs';
-import { createProvisionalPoseidon, PROFILE } from '../dist/circuits/src/provisional-poseidon.js';
+import { createProvisionalPoseidon, PROFILE } from '../dist/circuits/test/historical-v01/poseidon5.js';
 import { fixtureVariants, SOURCE_COMMIT } from '../dist/circuits/test/backend-a-fixture.js';
 import { calculator, decimal, encoded, outputs } from '../dist/circuits/test/runtime.js';
 

@@ -24,7 +24,7 @@ test('persistent private controller stays callable and executes real proof/trans
     const status=await host.call('status');assert.equal(status.realProofs,2);
     await host.close();closed=true;assert.equal(existsSync(host.bundlePath),false);
     await assert.rejects(()=>host.call('status'),e=>e.code==='SESSION_CLOSED');
-    mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/b5-private-ipc.json'),JSON.stringify({localOnly:true,syntheticOnly:true,
+    mkdirSync(resolve('reports'),{recursive:true});writeFileSync(resolve('reports/v02-b5-private-ipc.json'),JSON.stringify({localOnly:true,syntheticOnly:true,
       realProofs:status.realProofs,proofMetrics:status.proofMetrics,elapsedSeconds:(performance.now()-started)/1000,passed:true,cleanupVerified:true},null,2)+'\n');
   }finally{if(!closed)await host.close();}
 });

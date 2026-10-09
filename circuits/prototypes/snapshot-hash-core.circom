@@ -1,7 +1,7 @@
 pragma circom 2.2.3;
 include "circomlib/circuits/poseidon.circom";
 
-// PROVISIONAL gv-poseidon-hash-only-0.1.0. No issuance/protocol approval.
+// Approved Fr profile gv-poseidon-hash-only-0.2.0; tags/order remain PROVISIONAL.
 // Recursively group four children; zero padding at EVERY incomplete level.
 template FourChildTree(n, tags, level) {
     signal input values[n];

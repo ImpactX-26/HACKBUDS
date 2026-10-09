@@ -25,7 +25,7 @@ async function request(consumer,options={}){
   const signed=await h.signedRequest(consumer,options);signed.evidenceHandle=await handle();return h.approve(signed);
 }
 run('pinned actual A consent/FIP/Poseidon orchestration mints real passport through B transport',async()=>{
-  assert.equal(h.sourceManifest.commit,'d71c66f88ce8bc6d43c739be41a29b5077e66b22');assert.equal(h.sourceManifest.files.length,32);
+  assert.equal(h.sourceManifest.commit,'c765b2d7f014d702af3c8ee0d0e391055e05d840');assert.equal(h.sourceManifest.files.length,36);
   assert.equal(h.passportClient.isMockClient,false);assert.equal(h.passportId,'2');
   const p=await h.api.getPassport(h.passportId);assert.equal(p.status,'ACTIVE');assert.equal(p.evidenceVersion,'1');
   assert.equal(p.holderWallet.toLowerCase(),h.worker.address.toLowerCase());assert.equal(p.identityNullifierHash,h.identity);

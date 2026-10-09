@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import { addressToFieldElement, hashToFieldElement, providerIdToFieldElement } from '../../shared/proposal/field-mappings.js';
-import { createProvisionalPoseidon, field, FIELD, PROFILE, SCALARS } from '../src/provisional-poseidon.js';
+import { addressToFieldElement, hashToFieldElement, providerIdToFieldElement } from './historical-v01/field-mappings.js';
+import { createProvisionalPoseidon, field, FIELD, PROFILE, SCALARS } from './historical-v01/poseidon5.js';
 import { AMOUNT_LIMIT, checkedFixture, fixtureVariants, SOURCE_COMMIT, upstreamFixture } from './backend-a-fixture.js';
-import { calculator, decimal, encoded, outputs, root } from './runtime.js';
+import { calculator, decimal, encoded, outputs, root } from './historical-v01/runtime.js';
 
 // Exact frozen upstream modules, transpiled without modifying them or Backend A's branch.
 const upstream = (path: string) => import(pathToFileURL(resolve(root,'build/upstream',path+'.js')).href);

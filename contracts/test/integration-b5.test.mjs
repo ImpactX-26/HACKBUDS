@@ -17,7 +17,7 @@ after(async()=>{
   await session.close();
   assert.equal(existsSync(session.bundlePath),false);
   mkdirSync(resolve('reports'),{recursive:true});
-  writeFileSync(resolve('reports/b5-integration.json'),JSON.stringify({localOnly:true,syntheticOnly:true,backendAConnected:false,
+  writeFileSync(resolve('reports/v02-b5-integration.json'),JSON.stringify({localOnly:true,syntheticOnly:true,backendAConnected:false,
     passed:results.length,failed:failures,testNames:results,realProofs:stats.realProofs,proofMetrics:stats.proofMetrics,
     elapsedSeconds:(performance.now()-started)/1000,bundle,cleanupVerified:true},null,2)+'\n');
 });
@@ -37,6 +37,16 @@ run('public SDK works from exported bundle without a private prover',async()=>{
   const request=await session.fixtures.approve(await session.fixtures.signedRequest('loan'));
   await code(()=>publicApi.generateProof(request),'PROVER_UNAVAILABLE');
   assert.throws(()=>createBackendClient({bundle:{...session.bundle,bundleVersion:'unknown'},provider:session.local.provider}),e=>e.code==='BUNDLE_UNSUPPORTED');
+  assert.throws(()=>createBackendClient({bundle:{...session.bundle,commitmentProfile:'gv-poseidon-hash-only-0.1.0'},provider:session.local.provider}),e=>e.code==='BUNDLE_UNSUPPORTED');
+});
+run('v0.2 client refuses an actual schema 1 passport before private access',async()=>{
+  const approved=await session.fixtures.approve(await session.fixtures.signedRequest('loan'));
+  const p=await api.getPassport('1'),provider=session.local.provider,point=await provider.send('evm_snapshot',[]),count=session.stats.evidenceReads;
+  try {
+    await (await session.local.passport.connect(session.local.signers[1]).refresh(1,{commitment:BigInt(p.evidenceCommitment)+1n,
+      updatedAt:BigInt(p.evidenceUpdatedAt),schemaVersion:1,providerRef:p.evidenceProvider,sourceDirectoryVersion:3})).wait();
+    await code(()=>api.generateProof(approved),'EVIDENCE_SCHEMA_UNSUPPORTED');assert.equal(session.stats.evidenceReads,count);
+  }finally{assert.equal(await provider.send('evm_revert',[point]),true);}
 });
 run('explicit policy signing and worker approval are separate; unauthorized proofs do not read evidence',async()=>{
   const signed=await session.fixtures.signedRequest('loan');assert.ok(!signed.workerSignature);
@@ -65,7 +75,7 @@ run('authenticated reconstruction hook rejects altered evidence without private 
   const request=await session.fixtures.approve(await session.fixtures.signedRequest('loan'));
   const p=await api.getPassport('1');let invoked=0;
   const alternate=session.createClient({reconstruct:async()=>{invoked++;return {protocolVersion:request.protocolVersion,eligibilityProfile:request.eligibilityProfile,
-    commitmentProfile:session.bundle.commitmentProfile,schemaVersion:'1',evidenceVersion:p.evidenceVersion,
+    commitmentProfile:session.bundle.commitmentProfile,schemaVersion:'2',evidenceVersion:p.evidenceVersion,
     snapshot:snapshot({passportId:1n,holderBinding:BigInt(p.holderWallet),evidenceUpdatedAt:BigInt(p.evidenceUpdatedAt),evidenceDataHash:123456788n})};}});
   await code(()=>alternate.generateProof({...request,workerSignature:'0x'}),'WORKER_APPROVAL_INVALID');assert.equal(invoked,0);
   await code(()=>alternate.generateProof(request),'PROVER_REJECTED');assert.equal(invoked,1);
@@ -85,6 +95,7 @@ run('modified signals, wrong setup, weaker policy and consumer substitution reje
   const changed=structuredClone(L);changed.publicSignals[0]='0';changed.solidity.signals=[...changed.publicSignals];
   await code(()=>api.verify(loanRequest,changed),'INVALID_PROOF');
   await code(()=>api.verify(loanRequest,{...L,setupId:'other'}),'PROOF_PACKAGE_INVALID');
+  await code(()=>api.verify(loanRequest,{...L,commitmentProfile:'gv-poseidon-hash-only-0.1.0'}),'PROOF_PACKAGE_INVALID');
   await code(()=>api.borrow({...loanRequest,policy:{...loanRequest.policy,minAverageIncomePaise:'1'}},L,worker),'INVALID_POLICY');
   await code(()=>api.claim(loanRequest,L,worker),'CONSUMER_MISMATCH');
 });

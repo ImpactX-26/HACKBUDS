@@ -1,12 +1,11 @@
 import { buildPoseidon } from 'circomlibjs';
 
-// Fr and v0.2 profile approved by the user; tags/order remain PROVISIONAL.
-// This limited correction is not approval of the complete shared wire protocol.
-export const PROFILE = 'gv-poseidon-hash-only-0.2.0';
-// BN254 scalar field order (Fr). Circuit wires, Poseidon states and public signals must live in Fr.
-export const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-export const BN254_SCALAR_FIELD_ORDER = FIELD;
-export const BN254_BASE_FIELD_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+// Frozen Backend B f7d80c3 v0.1 review reproduction ONLY. Its FIELD is Fq, not Fr.
+// Never import this test-only adapter from active application/prover code.
+
+// Backend B shared PROPOSAL adapter. These test parameters are NOT a shared wire freeze.
+export const PROFILE = 'gv-poseidon-hash-only-0.1.0';
+export const FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
 export const TAGS = Object.freeze({
   income: Object.freeze([1100n, 1101n, 1102n]),
   weekly: Object.freeze([1200n, 1201n, 1202n, 1203n]),

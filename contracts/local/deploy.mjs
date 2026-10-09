@@ -6,6 +6,7 @@ import {compile} from './compile.mjs';
 import {prepareLocalSetup} from './setup.mjs';
 import {protocolVersion,eligibilityProfile} from '../../circuits/service/trusted-prover.mjs';
 import {manifest as publicSignalOrder} from '../proposal/authorization-v02.mjs';
+import {commitmentProfile,evidenceSchemaVersion} from '../integration/protocol.mjs';
 export async function deployLocal({port=0}={}) {
   const setup=await prepareLocalSetup();let server,provider;
   try {
@@ -37,7 +38,7 @@ export async function deployLocal({port=0}={}) {
     const loan=await deploy('loan','src/proposal/DemoLendingPoolV02.sol','DemoLendingPoolV02',[...args,await token.getAddress()]);
     const funding=await token.transfer(await loan.getAddress(),1000n*10n**6n);await funding.wait();
     transactions.push({action:'fund loan with 1000 MockUSDC',hash:funding.hash});
-    const manifest={protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.1.0',
+    const manifest={protocolVersion,eligibilityProfile,commitmentProfile,evidenceSchemaVersion,
       localOnly:true,productionReady:false,chainId:1337,rpcUrl,setupId:setup.id,setupDigests:setup.digests,
       contracts:entries,roles:{admin:addresses[0],attester:addresses[1],verifier:addresses[4]},
       domain:{name:'GigVaultEligibility',version:'0.2-provisional',chainId:1337,verifyingContract:'per-consumer'},publicSignalOrder};

@@ -24,7 +24,7 @@ export async function createSeededSession({port=0}={}) {
     evidenceUpdatedAt:BigInt((await local.provider.getBlock('latest')).timestamp)-100n,evidenceDataHash:123456789n};
   let scenario='eligible',reads=0;
   const makeSnapshot=()=>snapshot({...fixture,...(scenario==='activity-fail'?{monthlyActivity:Array(36).fill(0n)}:{})});
-  const evidence=s=>({commitment:hashes.commit(s).evidenceCommitment,updatedAt:s.evidenceUpdatedAt,schemaVersion:1,
+  const evidence=s=>({commitment:hashes.commit(s).evidenceCommitment,updatedAt:s.evidenceUpdatedAt,schemaVersion:2,
     providerRef:id('B5_LOCAL_SYNTHETIC_PROVIDER'),sourceDirectoryVersion:s.sourceDirectoryVersion});
   try {
     await (await local.passport.connect(local.signers[1]).mint(1,local.addresses[2],identity,evidence(makeSnapshot()))).wait();
@@ -47,8 +47,8 @@ export async function createSeededSession({port=0}={}) {
     const defaultReconstruct=async handle=>{
       if(handle!=='b5-synthetic-worker')throw Error('Unknown fixture handle');reads++;
       const state=await local.passport.getPassport(fixture.passportId);
-      return {protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.1.0',
-        schemaVersion:'1',evidenceVersion:state.evidenceVersion.toString(),snapshot:makeSnapshot()};
+      return {protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.2.0',
+        schemaVersion:'2',evidenceVersion:state.evidenceVersion.toString(),snapshot:makeSnapshot()};
     };
     // A supplies an authenticated resolver here; the caller cannot override it in a request.
     const createClient=({reconstruct=defaultReconstruct}={})=>createBackendClient({bundle,provider:local.provider,isClosed:()=>closed,

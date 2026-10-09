@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { FIELD } from './poseidon5.js';
 
-// PROPOSED mappings; strict external boundaries. Only named digest mapping reduces modulo BN254 Fr.
+// PROPOSED mappings; strict external boundaries. Only named digest mapping reduces.
 export function hashToFieldElement(hexDigest: string): bigint {
   if (typeof hexDigest !== 'string' || !/^(?:0x)?[0-9a-fA-F]{64}$/.test(hexDigest)) {
     throw new Error('Expected exact 32-byte SHA-256 hex digest');

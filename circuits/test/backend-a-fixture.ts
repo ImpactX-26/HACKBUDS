@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { addressToFieldElement, hashToFieldElement, providerIdToFieldElement } from '../../shared/proposal/field-mappings.js';
-import { FIELD, SCALARS, field, validate, type HashInput } from '../src/provisional-poseidon.js';
+import { addressToFieldElement, hashToFieldElement, providerIdToFieldElement } from './historical-v01/field-mappings.js';
+import { FIELD, SCALARS, field, validate, type HashInput } from './historical-v01/poseidon5.js';
 import { root } from './runtime.js';
 
 export const SOURCE_COMMIT = '8c5042bd37d6a74bb3c765f58eb6ac855caa1b6f';

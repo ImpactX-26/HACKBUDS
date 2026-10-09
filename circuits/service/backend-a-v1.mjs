@@ -5,6 +5,7 @@ const safe=v=>{if(!Number.isSafeInteger(v)||v<0)throw Error('Unsafe Backend A in
 // Translation only, after authenticated reconstruction. Never accepts legacy mock proof results.
 // A's published runtime already uses epoch DAYS. Seconds are rejected, never divided silently.
 export function translateBackendAWitness(payload,{schemaVersion,evidenceVersion},hashes) {
+  if(schemaVersion!=='2')throw Error('v0.2 requires authenticated on-chain evidence schemaVersion 2');
   const s=payload.snapshot,c=payload.circuitInputs,p=payload.expectedPublicSignals;
   const snapshot={passportId:safe(s.passportId),holderBinding:addressToFieldElement(s.holderBinding).toString(),
     evidenceProviderId:providerIdToFieldElement(s.evidenceProviderId).toString(),

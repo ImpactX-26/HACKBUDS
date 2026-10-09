@@ -8,9 +8,9 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { manifest, reviewRoot } from '../scripts/verify-final-source.mjs';
-import { createProvisionalPoseidon, FIELD, PROFILE } from '../dist/shared/proposal/poseidon5.js';
-import { hashToFieldElement, addressToFieldElement, providerIdToFieldElement } from '../dist/shared/proposal/field-mappings.js';
-import { calculator, encoded, outputs, decimal } from '../dist/circuits/test/runtime.js';
+import { createProvisionalPoseidon, FIELD, PROFILE } from '../dist/circuits/test/historical-v01/poseidon5.js';
+import { hashToFieldElement, addressToFieldElement, providerIdToFieldElement } from '../dist/circuits/test/historical-v01/field-mappings.js';
+import { calculator, encoded, outputs, decimal } from '../dist/circuits/test/historical-v01/runtime.js';
 
 const upstream = path => import(pathToFileURL(resolve(reviewRoot, 'backend/dist', path + '.js')).href);
 const { MockFIPStorage } = await upstream('backend/src/fip/storage');

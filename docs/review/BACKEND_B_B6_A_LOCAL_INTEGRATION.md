@@ -1,5 +1,9 @@
 # Backend B B6 — authenticated A → B local integration
 
+Historical B6 checkpoint report. For the latest A pin and security reconciliation,
+see `BACKEND_B_B6_COMPATIBILITY_RECONCILIATION.md`; current public integration report
+now records c765b2d7. The earlier counts/timings below describe the original run.
+
 The continuous local flow now executes A's actual published authenticated evidence
 pipeline and B's actual Groth16/Solidity consumers. This is synthetic local testing,
 not a separately running A HTTP integration or approved production protocol.

@@ -34,7 +34,7 @@ try {
   };
   const now=BigInt((await provider.getBlock('latest')).timestamp),identity=id('B4_LOCAL_SYNTHETIC_WORKER');
   let s=snapshot({passportId:1n,holderBinding:BigInt(addresses[2]),evidenceUpdatedAt:now-100n});
-  const evidence=s=>({commitment:hashes.commit(s).evidenceCommitment,updatedAt:s.evidenceUpdatedAt,schemaVersion:1,
+  const evidence=s=>({commitment:hashes.commit(s).evidenceCommitment,updatedAt:s.evidenceUpdatedAt,schemaVersion:2,
     providerRef:id('LOCAL_SYNTHETIC_PROVIDER'),sourceDirectoryVersion:s.sourceDirectoryVersion});
   await sent(passport.connect(attester).mint(1,addresses[2],identity,evidence(s)),'mint synthetic passport');
   check(await passport.hasRole(await passport.ADMIN_ROLE(),addresses[0]),'admin role configured');
@@ -53,7 +53,7 @@ try {
     const verifierSignature=await signing(addresses[4]).signTypedData(domain,policyTypes,policy);
     const workerSignature=await signing(await who.getAddress()).signTypedData(domain,approvalTypes,approvalFor(policy,current.passportId,state,domain));
     const handle='synthetic-'+n;
-    evidenceStore.set(handle,{protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.1.0',schemaVersion:'1',
+    evidenceStore.set(handle,{protocolVersion,eligibilityProfile,commitmentProfile:'gv-poseidon-hash-only-0.2.0',schemaVersion:'2',
       evidenceVersion:state.evidenceVersion.toString(),snapshot:current});
     return {protocolVersion,eligibilityProfile,consumer:consumerName,passportId:current.passportId.toString(),evidenceHandle:handle,
       policy,verifierSignature,workerSignature};

@@ -1,6 +1,6 @@
 import {Contract,TypedDataEncoder,verifyTypedData,getAddress} from 'ethers';
 import {approvalFor,approvalTypes,policyTypes,domainFor,validatePolicy,criteria,assertAuthorized,manifest as signalOrder} from '../proposal/authorization-v02.mjs';
-import {protocolVersion,eligibilityProfile} from './protocol.mjs';
+import {protocolVersion,eligibilityProfile,commitmentProfile,evidenceSchemaVersion} from './protocol.mjs';
 import {BackendError,fail,safeError} from './errors.mjs';
 export const bundleVersion='gv-local-integration-b5/1';
 const copy=x=>structuredClone(x);
@@ -17,7 +17,7 @@ export const consumerPolicies=Object.freeze({
 export function createBackendClient({bundle,provider,prover,isClosed=()=>false}) {
   const b=copy(bundle);
   if(b.bundleVersion!==bundleVersion||b.protocolVersion!==protocolVersion||b.eligibilityProfile!==eligibilityProfile||
-    b.commitmentProfile!=='gv-poseidon-hash-only-0.1.0'||b.localOnly!==true||b.chainId!==1337||
+    b.commitmentProfile!==commitmentProfile||b.evidenceSchemaVersion!==evidenceSchemaVersion||b.localOnly!==true||b.chainId!==1337||
     JSON.stringify(b.publicSignalOrder)!==JSON.stringify(signalOrder))fail('BUNDLE_UNSUPPORTED','Use this local session’s versioned bundle.');
   const contracts=Object.fromEntries(Object.entries(b.contracts).map(([name,entry])=>[name,new Contract(entry.address,entry.abi,provider)]));
   const passport=contracts.passport,token=contracts.token,loan=contracts.loan;
@@ -50,6 +50,7 @@ export function createBackendClient({bundle,provider,prover,isClosed=()=>false})
       (await consumer.passport()).toLowerCase()!==b.contracts.passport.address.toLowerCase()||
       (await consumer.mathVerifier()).toLowerCase()!==b.contracts.math.address.toLowerCase())fail('DEPLOYMENT_MISMATCH','Consumer deployment/domain does not match this session.');
     if(record.status!==0n)fail('PASSPORT_REVOKED','The passport is revoked.');
+    if(record.schemaVersion!==BigInt(evidenceSchemaVersion))fail('EVIDENCE_SCHEMA_UNSUPPORTED','v0.2 requires passport schemaVersion 2. Reconstruct and refresh evidence; do not relabel v0.1.');
     if(BigInt(r.policy.expiresAt)<BigInt(block.timestamp))fail('REQUEST_EXPIRED','This approved request has expired. Obtain a new request and approval.');
     if(record.evidenceUpdatedAt>BigInt(block.timestamp)||BigInt(r.policy.maxEvidenceAgeDays)>0n&&
       BigInt(block.timestamp)-record.evidenceUpdatedAt>BigInt(r.policy.maxEvidenceAgeDays)*86400n)fail('EVIDENCE_STALE','Current passport evidence is outside this policy’s freshness window.');
@@ -63,7 +64,7 @@ export function createBackendClient({bundle,provider,prover,isClosed=()=>false})
     return {request:r,record,consumer,domain};
   }
   function packageFor(r,result) {
-    if(result?.protocolVersion!==protocolVersion||result.eligibilityProfile!==eligibilityProfile||result.setupId!==b.setupId||
+    if(result?.protocolVersion!==protocolVersion||result.eligibilityProfile!==eligibilityProfile||result.commitmentProfile!==commitmentProfile||result.schemaVersion!==evidenceSchemaVersion||result.setupId!==b.setupId||
       !Array.isArray(result.publicSignals)||result.publicSignals.length!==29||!result.solidity||
       JSON.stringify(result.solidity.signals)!==JSON.stringify(result.publicSignals))fail('PROOF_PACKAGE_INVALID','Proof package/profile/setup does not match the session.');
     return {passportId:r.passportId,policy:r.policy,verifierSignature:r.verifierSignature,workerSignature:r.workerSignature,

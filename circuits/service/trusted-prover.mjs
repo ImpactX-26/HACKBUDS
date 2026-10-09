@@ -3,10 +3,11 @@ import {prepareAuthorizedWitness} from '../scripts/authorized-witness-v02.mjs';
 import {PROFILE,validate,field} from '../dist/circuits/src/provisional-poseidon.js';
 export const protocolVersion='gv-local-prover-b4/1';
 export const eligibilityProfile='gv-eligibility-0.2-provisional';
+export const evidenceSchemaVersion='2';
 
 const bound=(value,bits)=>{const n=field(value);if(n>=1n<<BigInt(bits))throw Error('Evidence scalar overflow');return n;};
 export function validateEvidence(envelope,state,passportId) {
-  if(envelope?.protocolVersion!==protocolVersion||envelope.commitmentProfile!==PROFILE||
+  if(state.schemaVersion!==BigInt(evidenceSchemaVersion)||envelope?.protocolVersion!==protocolVersion||envelope.commitmentProfile!==PROFILE||
     envelope.eligibilityProfile!==eligibilityProfile||envelope.schemaVersion!==String(state.schemaVersion)||
     envelope.evidenceVersion!==String(state.evidenceVersion)) throw Error('Unsupported evidence metadata');
   const s=envelope.snapshot;validate(s);
@@ -40,7 +41,7 @@ export function createTrustedProver({readState,reconstruct,hashes,prove,setupId}
       typeof r.passportId!=='string'||!/^[1-9][0-9]*$/.test(r.passportId)||BigInt(r.passportId)>=1n<<64n)
       throw Error('Unsupported proof request');
     const state=await readState(r.consumer,r.passportId,r.policy);
-    if(state.passport.schemaVersion!==1n||state.passport.evidenceVersion<1n||state.passport.evidenceVersion>=1n<<64n)
+    if(state.passport.schemaVersion!==BigInt(evidenceSchemaVersion)||state.passport.evidenceVersion<1n||state.passport.evidenceVersion>=1n<<64n)
       throw Error('Unsupported passport metadata');
     const auth={policy:r.policy,policySignature:r.verifierSignature,workerSignature:r.workerSignature,
       passportId:r.passportId,passport:state.passport,domain:state.domain,now:state.now,expectedVerifier:state.expectedVerifier};
@@ -62,7 +63,7 @@ export function createTrustedProver({readState,reconstruct,hashes,prove,setupId}
       for(const k of [...context,...criteria])if(after[k]!==input[k])throw Error('Passport changed during proving');
       const p=result.proof;
       const solidity={a:p.pi_a.slice(0,2),b:p.pi_b.slice(0,2).map(row=>[row[1],row[0]]),c:p.pi_c.slice(0,2),signals};
-      return frozen({protocolVersion,eligibilityProfile,setupId,proof:p,publicSignals:signals,solidity});
+      return frozen({protocolVersion,eligibilityProfile,commitmentProfile:PROFILE,schemaVersion:evidenceSchemaVersion,setupId,proof:p,publicSignals:signals,solidity});
     } catch {throw Error('Private evidence or proof rejected');}
     finally {input=null;}
   }});
