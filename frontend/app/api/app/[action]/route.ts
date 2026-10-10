@@ -4,7 +4,7 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 const allowed=new Set(['info','publicPassport','challenge','login','logout','dashboard','onboardStart','onboardWallet','otpStart','otpMailbox','otpVerify',
   'loginOtpStart','loginOtpMailbox','loginOtpVerify',
-  'identityCommit','actionChallenge','actionSubmit','revokeConsent','policyPrepare','policySubmit','approval','approve','reject',
+  'identityCommit','recoveryStatus','actionChallenge','actionSubmit','revokeConsent','policyPrepare','policySubmit','approval','approve','reject',
   'localGas','applyService','consumerTransaction','transactionMined','repaymentTransaction','adminTransaction','recoveryAuthorize']);
 export async function POST(request:Request,{params}:{params:Promise<{action:string}>}){
   try{

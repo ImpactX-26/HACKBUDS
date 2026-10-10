@@ -38,6 +38,14 @@ Borrow or Claim is a separate actual transaction. Lending transfers 100 MockUSDC
 
 Expired/rejected/completed requests remain visible for up to 90 days, within the bounded local archive. Old results cannot execute against changed evidence. Renew consent before fresh evidence access; after refresh, request a new policy/approval/proof. Ineligible or obsolete results do not lock out a new application. Refresh changes evidence, not the worker account.
 
+## Account entry and guided recovery
+
+Choose Create Account, Sign In or Recover Account on the existing signup page. Browser wallet is the default; Wallet connection options also exposes the existing local test wallets without requiring a separate developer page. No embedded-wallet service is configured.
+
+The authorized administrator loads a passport's actual recovery status and follows Revoke Passport → Authorize Reissue → Approve Replacement Wallet. The approved wallet automatically starts recovery onboarding; it re-verifies the original phone and matching identity, signs fresh financial consent and creates the replacement passport. The read-only status endpoint is limited to the administrator, original passport holder and approved replacement wallet. Replacement approval expires after 30 minutes and is intentionally temporary across server restart. Completion is reported only from a real replacement passport on chain.
+
+New verifier results focus the exact signed request ID. PENDING_WORKER means no approved proof exists; share the displayed link/QR so its holder can sign in and approve. History retains other permitted requests. Focused executed evidence is in [Ideathon workflow validation](docs/review/IDEATHON_WORKFLOW_POLISH.md).
+
 ## Verifier and recovery
 
 The verifier portal retains public lookup, custom optional fact policies, fixed service policies, signed request creation, permitted proof results and request history. Only the configured verifier signs these requests; workers explicitly approve them. Public passport lookup/QR exposes the chain record, never private financial summaries.

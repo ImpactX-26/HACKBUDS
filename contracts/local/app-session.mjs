@@ -88,6 +88,19 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     const getOnboard=(wallet,id)=>{const v=onboards.get(id);if(!v||!same(v.wallet,wallet))fail('ONBOARDING_SESSION_REJECTED');return v;};
     const getRequest=(wallet,id,workerOnly=false)=>{const r=requests.get(id);if(!r||r.expiresAt<=now())fail('REQUEST_EXPIRED');
       if(!same(r.holder,wallet)&&(workerOnly||!same(wallet,bundle.roles.verifier)))fail('UNAUTHORIZED_WORKER');return r;};
+    const recoveryStatus=async(wallet,passportId)=>{
+      const record=await registry.findByWallet(wallet);
+      const matched=[...recoveries.entries()].find(([,g])=>same(g.wallet,wallet));
+      const id=passportId??matched?.[1].passportId??(record&&workers.get(record.identityNullifier)?.passportId);
+      if(!id)return null;
+      const passport=await session.client.getPassport(String(id)),identity=passport.identityNullifierHash.toLowerCase(),grant=recoveries.get(identity);
+      if(!same(wallet,bundle.roles.admin)&&!same(wallet,passport.holderWallet)&&!same(wallet,grant?.wallet))fail('UNAUTHORIZED_WORKER');
+      const registered=await registry.findByIdentityNullifier(identity);
+      const latest=String(await local.passport.latestPassportByIdentity(identity));
+      return {passportId:String(id),passportStatus:passport.status,reissueAllowed:await passportClient.isReissueAllowed(identity),
+        replacementWallet:grant?.wallet??null,expiresAt:grant?.expiresAt??null,phoneMasked:registered?.phoneMasked??null,
+        replacementApproved:!!grant&&same(grant.wallet,wallet),replacementPassportId:latest!==String(id)?latest:null};
+    };
     const transaction=(contract,method,args)=>({to:contract.target,data:contract.interface.encodeFunctionData(method,args),value:'0x0'});
     const remember=(w,event,details={})=>{w.history=[{event,at:now(),...details},...w.history.filter(x=>x.at>now()-90*86400)].slice(0,20);};
     const summary=s=>({incomeLast6MonthsPaise:s.monthlyGigIncomeTotals.slice(-6).reduce((a,b)=>a+b,0),
@@ -122,13 +135,14 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
         }
         fail('METHOD_UNSUPPORTED');
       }
-      if(!fullyAuthenticated&&!['dashboard','onboardStart','onboardWallet','otpStart','otpMailbox','otpVerify','identityCommit'].includes(method))fail(record?'WORKER_AUTHENTICATION_INCOMPLETE':'ONBOARDING_REQUIRED');
+      if(!fullyAuthenticated&&!['dashboard','recoveryStatus','onboardStart','onboardWallet','otpStart','otpMailbox','otpVerify','identityCommit'].includes(method))fail(record?'WORKER_AUTHENTICATION_INCOMPLETE':'ONBOARDING_REQUIRED');
+      if(method==='recoveryStatus')return recoveryStatus(wallet,p.passportId);
       if(method==='dashboard'){
         if(!fullyAuthenticated){
           const entry=[...onboards.entries()].reverse().find(([,o])=>same(o.wallet,wallet));
           const s=entry?await entry[1].service.getSession(entry[0]):null;
           return clean({wallet,connectionMode:login.connectionMode(p.token),sessionExpiresAt:login.expiresAt(p.token),role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
-            onboarding:s?{sessionId:s.sessionId,state:s.state,otp:entry[1].otp??null}:null,
+            onboarding:s?{sessionId:s.sessionId,state:s.state,otp:entry[1].otp??null,recovery:!!entry[1].recoveryIdentity}:null,recovery:await recoveryStatus(wallet),
             worker:null,summary:null,passport:null,consent:null,history:[],requests:[]});
         }
         const w=record&&workers.get(record.identityNullifier);
@@ -138,7 +152,7 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
           consent:w?.consentId?(()=>{const c=consents.getConsent(w.consentId);return {consentId:c.consentId,status:c.status,expiresAt:c.expiresAt,scope:c.scope};})():null,passport,summary:w?.summary??null,
           identityState:passport?await session.client.getIdentityState(w.passportId):null,
           balanceMockUSDC:await local.token.balanceOf(wallet).then(String),history:w?.history??[],
-          reissueAllowed:record?await passportClient.isReissueAllowed(record.identityNullifier):false,
+          recovery:record?await recoveryStatus(wallet):null,reissueAllowed:record?await passportClient.isReissueAllowed(record.identityNullifier):false,
           requests:await Promise.all([...requests.entries()].filter(([,r])=>same(r.holder,wallet)||same(wallet,bundle.roles.verifier))
             .map(async([id,r])=>{let contextStatus=null;if(r.result){const current=await session.client.getPassport(r.request.passportId);
               contextStatus=current.status!=='ACTIVE'?'PASSPORT_REVOKED':current.evidenceVersion!==r.verifiedContext.evidenceVersion||current.evidenceCommitment!==r.verifiedContext.evidenceCommitment?'EVIDENCE_CHANGED':Number(r.request.policy.maxEvidenceAgeDays)>0&&now()-Number(current.evidenceUpdatedAt)>Number(r.request.policy.maxEvidenceAgeDays)*86400?'STALE_EVIDENCE':'CURRENT';}
@@ -148,11 +162,13 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
       if(method==='onboardStart'){
         if(record)fail('IDENTITY_ALREADY_BOUND');
         assertWorker(wallet);if(onboards.size>=128)fail('AUTH_BUSY');
-        const recovery=p.recoveryIdentity?recoveries.get(p.recoveryIdentity.toLowerCase()):null;
-        if(p.recoveryIdentity&&(!recovery||!same(recovery.wallet,wallet)))fail('RECOVERY_NOT_AUTHORIZED');
+        const matched=[...recoveries.entries()].find(([,grant])=>same(grant.wallet,wallet));
+        const recoveryIdentity=p.recoveryIdentity?.toLowerCase()??matched?.[0];
+        const recovery=recoveryIdentity?recoveries.get(recoveryIdentity):null;
+        if(recoveryIdentity&&(!recovery||!same(recovery.wallet,wallet)))fail('RECOVERY_NOT_AUTHORIZED');
         const service=recovery?recoveryOnboarding:onboarding;
         const s=await service.createSession({walletAddress:wallet});
-        onboards.set(s.sessionId,{wallet,service,recoveryIdentity:p.recoveryIdentity?.toLowerCase(),expiresAt:now()+1800});
+        onboards.set(s.sessionId,{wallet,service,recoveryIdentity,expiresAt:now()+1800});
         return {sessionId:s.sessionId,message:formatOnboardingChallengeMessage(s.sessionId,s.challengeNonce,wallet)};
       }
       if(method==='onboardWallet'){
@@ -341,14 +357,15 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
       }
       if(method==='adminTransaction'){
         assertRole(wallet,'admin');const passport=await session.client.getPassport(p.passportId);
-        if(p.authorize){if(passport.status!=='REVOKED')fail('REVOKE_FIRST');return transaction(local.passport,'authorizeReissue',[passport.identityNullifierHash]);}
+        if(p.authorize){if(passport.status!=='REVOKED')fail('REVOKE_FIRST');if(await passportClient.isReissueAllowed(passport.identityNullifierHash))fail('REISSUE_ALREADY_AUTHORIZED');return transaction(local.passport,'authorizeReissue',[passport.identityNullifierHash]);}
+        if(passport.status!=='ACTIVE')fail('PASSPORT_ALREADY_REVOKED');
         return transaction(local.passport,'revoke',[p.passportId,'ADMIN_LOCAL_RECOVERY']);
       }
       if(method==='recoveryAuthorize'){
-        assertRole(wallet,'admin');const passport=await session.client.getPassport(p.passportId),replacement=getAddress(p.wallet);
+        assertRole(wallet,'admin');const passport=await session.client.getPassport(p.passportId),replacement=(()=>{try{return getAddress(p.wallet);}catch{fail('INVALID_WALLET_ADDRESS');}})();
         assertWorker(replacement);if(passport.status!=='REVOKED'||!await passportClient.isReissueAllowed(passport.identityNullifierHash))fail('RECOVERY_NOT_AUTHORIZED');
         if(await registry.findByWallet(replacement))fail('WALLET_ALREADY_BOUND');
-        recoveries.set(passport.identityNullifierHash.toLowerCase(),{wallet:replacement,expiresAt:now()+1800});return {identity:passport.identityNullifierHash};
+        recoveries.set(passport.identityNullifierHash.toLowerCase(),{wallet:replacement,passportId:String(p.passportId),expiresAt:now()+1800});return {identity:passport.identityNullifierHash};
       }
       fail('METHOD_UNSUPPORTED');
     }
