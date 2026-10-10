@@ -6,8 +6,8 @@ import {BackendError} from './errors.mjs';
  */
 export async function startLocalBackend({port=0,startupTimeoutMs=180000,onDiagnostic=()=>{},
   evidenceMode=process.env.GIGVAULT_EVIDENCE_MODE??'synthetic'}={}) {
-  if(!['synthetic','backend-a-http'].includes(evidenceMode))throw new BackendError('TRANSPORT_UNSUPPORTED','Unsupported local evidence mode.');
-  const child=fork(fileURLToPath(new URL('../local/start.mjs',import.meta.url)),[String(port),evidenceMode],{
+  if(!['synthetic','backend-a-http','application'].includes(evidenceMode))throw new BackendError('TRANSPORT_UNSUPPORTED','Unsupported local evidence mode.');
+  const child=fork(fileURLToPath(new URL(evidenceMode==='application'?'../local/app-start.mjs':'../local/start.mjs',import.meta.url)),[String(port),evidenceMode],{
     stdio:['ignore','ignore','pipe','ipc'],windowsHide:true,serialization:'advanced'});
   child.stderr.on('data',bytes=>onDiagnostic(bytes.toString()));
   const pending=new Map();let sequence=0,closed=false;

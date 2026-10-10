@@ -21,7 +21,7 @@ export function prepareBackendASource({fetch=false,commit=backendACommit,http=fa
   for(const line of listing.trim().split('\n')){
     const match=/^100644 blob ([0-9a-f]{40})\t(.+\.ts)$/.exec(line);if(!match)continue;
     const [,blob,path]=match;
-    if(path.includes('/identity/')&&!/^backend\/src\/identity\/(mock-idp|wallet-auth|types|aadhaar\/(types|real-verifier|mock-verifier)|onboarding\/attestation-adapter)\.ts$/.test(path))continue;
+    if(path.includes('/identity/')&&!/^backend\/src\/identity\/(mock-idp|wallet-auth|types|aadhaar\/(types|real-verifier|mock-verifier)|onboarding\/(attestation-adapter|registry|session-service|types)|phone\/(types|mock-provider))\.ts$/.test(path))continue;
     const source=git(['cat-file','blob',blob]);
     const actual=createHash('sha1').update(`blob ${source.length}\0`).update(source).digest('hex');
     if(actual!==blob)throw Error('Backend A Git blob integrity failed.');

@@ -14,8 +14,8 @@ import {BackendError} from '../integration/errors.mjs';
 /** Owns a persistent LOCAL synthetic session. No financial arrays are retained or exported.
  * Each resolver call regenerates the disposable fixture from its scenario and public metadata.
  */
-export async function createSeededSession({port=0}={}) {
-  const local=await deployLocal({port});
+export async function createSeededSession({port=0,application=false}={}) {
+  const local=await deployLocal({port,application});
   let closed=false,closePromise;
   const jobs=new Set(),proofMetrics=[];
   const hashes=await createProvisionalPoseidon(),engine=createProofEngine(local.setup);
@@ -27,8 +27,10 @@ export async function createSeededSession({port=0}={}) {
   const evidence=s=>({commitment:hashes.commit(s).evidenceCommitment,updatedAt:s.evidenceUpdatedAt,schemaVersion:2,
     providerRef:id('B5_LOCAL_SYNTHETIC_PROVIDER'),sourceDirectoryVersion:s.sourceDirectoryVersion});
   try {
-    await (await local.passport.connect(local.signers[1]).mint(1,local.addresses[2],identity,evidence(makeSnapshot()))).wait();
-    await (await local.token.transfer(local.addresses[2],100n*10n**6n)).wait();
+    if(!application){
+      await (await local.passport.connect(local.signers[1]).mint(1,local.addresses[2],identity,evidence(makeSnapshot()))).wait();
+      await (await local.token.transfer(local.addresses[2],100n*10n**6n)).wait();
+    }
     const bundle={...structuredClone(local.manifest),bundleVersion,syntheticOnly:true,
       policyTypes:structuredClone(policyTypes),approvalTypes:structuredClone(approvalTypes),consumerPolicies:structuredClone(consumerPolicies),
       fixture:{passportId:'1',holder:local.addresses[2],identity,source:'LOCAL_SYNTHETIC_FIXTURE',evidenceHandle:'b5-synthetic-worker'},

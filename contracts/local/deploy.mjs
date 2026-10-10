@@ -7,12 +7,12 @@ import {prepareLocalSetup} from './setup.mjs';
 import {protocolVersion,eligibilityProfile} from '../../circuits/service/trusted-prover.mjs';
 import {manifest as publicSignalOrder} from '../proposal/authorization-v02.mjs';
 import {commitmentProfile,evidenceSchemaVersion} from '../integration/protocol.mjs';
-export async function deployLocal({port=0}={}) {
+export async function deployLocal({port=0,application=false}={}) {
   const setup=await prepareLocalSetup();let server,provider;
   try {
     const artifacts=compile(readFileSync(setup.verifier,'utf8'));
-    server=ganache.server({logging:{quiet:true},wallet:{totalAccounts:6},
-      chain:{chainId:1337,hardfork:'shanghai',time:new Date('2026-10-09T00:00:00Z')}});
+    server=ganache.server({logging:{quiet:true},wallet:{totalAccounts:application?12:6},
+      chain:{chainId:1337,hardfork:'shanghai',time:application?new Date():new Date('2026-10-09T00:00:00Z')}});
     // Hardcoded loopback. No public-network deployment option is provided.
     await server.listen(port,'127.0.0.1');
     const rpcUrl=`http://127.0.0.1:${server.address().port}`;
