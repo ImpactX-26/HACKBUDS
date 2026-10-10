@@ -12,6 +12,12 @@ A registered worker signs a fresh wallet challenge and restores the backend acco
 
 Challenges retain the existing application EIP-712 context: wallet, random nonce, origin hash, expiry, chain and purpose-specific domain/type. Sessions are opaque, held only in backend memory, and expire after 30 minutes. Cookies are HttpOnly, SameSite Strict and Secure on HTTPS; mutation requests require the configured Origin. Logout invalidates the server session. Browser account/network/disconnect events clear the session, and signing/transaction preflight checks the current wallet and chain. No localStorage flag authorizes anything.
 
+## Aadhaar Verification experience
+
+After phone verification, the existing onboarding screen now asks for a formatted 12-digit Aadhaar Number and offers Verify Aadhaar. This is an Aadhaar-themed **Mock IDP** experience, not UIDAI or genuine Aadhaar verification. Only seven exact fictional, zero-prefixed evaluation identifiers are accepted; arbitrary numbers or persona names are rejected. The server resolves the stable existing identity, issues its wallet-bound signed assertion, and the existing onboarding verifier independently verifies it before committing registration. First registration still requires wallet ownership and OTP. Duplicate binding/recovery rules and returning wallet login remain unchanged.
+
+The input is transient, cleared after submission and never added to account records, assertions or history. The fixed allowlist is evaluation configuration. Use only the identifiers in [the teammate evaluation guide](docs/review/IDENTITY_EVALUATION_GUIDE.md); never submit a real Aadhaar number. Repetitive primary-screen warnings were removed; technical disclosures remain here and in the existing environment section. OTP still uses the disclosed local Mock mailbox. See [focused validation](docs/review/AADHAAR_EXPERIENCE_VALIDATION.md).
+
 ## Persistent local state
 
 The normal frontend uses `contracts/artifacts/application-state`, ignored by Git. Set `GIGVAULT_APPLICATION_DATA` before starting to select another private profile. Keep the **whole directory** together: it contains Ganache's chain database, stable development-wallet seed/RPC port, deployment addresses/code hashes, trusted synthetic signing keys, protected phone references, registry/account records, consent metadata, requests, public proof packages and bounded history. It contains private service material; do not publish it or put it in a served directory.

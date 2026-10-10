@@ -1,3 +1,4 @@
+import {fictionalAadhaarIdentifiers} from '../local/fictional-aadhaar.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
@@ -29,7 +30,7 @@ test('independent EIP-1193 wallet authenticates, registers, consents and sends a
   await assert.rejects(()=>call(token,'localGas'),/ONBOARDING_REQUIRED/);
   const registration=await call(token,'onboardStart');await call(token,'onboardWallet',{sessionId:registration.sessionId,signature:await signer.signMessage(registration.message)});
   await call(token,'otpStart',{sessionId:registration.sessionId,phone:'+919000000001'});const otp=await call(token,'otpMailbox',{sessionId:registration.sessionId});
-  await call(token,'otpVerify',{sessionId:registration.sessionId,code:otp.code});await call(token,'identityCommit',{sessionId:registration.sessionId,persona:'RAMESH'});
+  await call(token,'otpVerify',{sessionId:registration.sessionId,code:otp.code});await call(token,'identityCommit',{sessionId:registration.sessionId,aadhaarNumber:fictionalAadhaarIdentifiers.RAMESH});
   for(const action of ['CREATE_CONSENT','MINT_PASSPORT']){const a=await call(token,'actionChallenge',{action});await call(token,'actionSubmit',{id:a.id,signature:await signer.signMessage(a.message)});}
   const d=await call(token,'dashboard');assert.equal(d.connectionMode,'external');assert.equal(d.passport.holderWallet,wallet.address);assert.equal(d.passport.status,'ACTIVE');
   const funded=await call(token,'localGas',{wallet:app.bundle.roles.admin,value:'999999999999999999999'});assert.equal(funded.status,1);assert.equal(await rpc.getBalance(wallet.address),250000000000000000n);
@@ -44,7 +45,7 @@ test('independent EIP-1193 wallet authenticates, registers, consents and sends a
   const otherMessage=m=>rpc.send('eth_sign',[other,hexlify(toUtf8Bytes(m))]);
   await call(otherToken,'onboardWallet',{sessionId:otherRegistration.sessionId,signature:await otherMessage(otherRegistration.message)});
   await call(otherToken,'otpStart',{sessionId:otherRegistration.sessionId,phone:'+919000000002'});const otherOtp=await call(otherToken,'otpMailbox',{sessionId:otherRegistration.sessionId});
-  await call(otherToken,'otpVerify',{sessionId:otherRegistration.sessionId,code:otherOtp.code});await call(otherToken,'identityCommit',{sessionId:otherRegistration.sessionId,persona:'SURESH'});
+  await call(otherToken,'otpVerify',{sessionId:otherRegistration.sessionId,code:otherOtp.code});await call(otherToken,'identityCommit',{sessionId:otherRegistration.sessionId,aadhaarNumber:fictionalAadhaarIdentifiers.SURESH});
   for(const action of ['CREATE_CONSENT','MINT_PASSPORT']){const a=await call(otherToken,'actionChallenge',{action});await call(otherToken,'actionSubmit',{id:a.id,signature:await otherMessage(a.message)});}
   const otherRequest=await call(otherToken,'applyService',{consumer:'loan'});
   await assert.rejects(()=>call(token,'approval',{id:otherRequest.id}),/UNAUTHORIZED_WORKER/);

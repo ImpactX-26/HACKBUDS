@@ -1,3 +1,4 @@
+import {createFictionalAadhaarProvider} from './fictional-aadhaar.mjs';
 import {resolve} from 'node:path';
 import {openApplicationProfile} from './application-profile.mjs';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
@@ -50,6 +51,7 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     const phoneSecret=saved?.phoneSecret??randomBytes(32).toString('hex');
     const phone=new MockPhoneVerificationProvider({hmacSecret:phoneSecret,allowDevTestRetrieval:true});
     const idp=new MockIdentityProvider(saved?.idpKey),recoveryIdp=new MockIdentityProvider();
+    const aadhaarIdp=createFictionalAadhaarProvider(idp,PERSONAS),recoveryAadhaarIdp=createFictionalAadhaarProvider(recoveryIdp,PERSONAS);
     registry.recordsByWorkerId=new Map(saved?.registry??[]);
     for(const record of await registry.listActiveWorkers())idp.rebindWorkerWallet(record.identityNullifier,record.walletAddress);
     const onboarding=new OnboardingSessionService({registry,phoneProvider:phone,phoneHmacSecret:phoneSecret,
@@ -169,13 +171,15 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
         const o=getOnboard(wallet,p.sessionId);await o.service.verifyPhoneOtp({sessionId:p.sessionId,otpCode:p.code});return {state:'PHONE_VERIFIED'};
       }
       if(method==='identityCommit'){
-        const o=getOnboard(wallet,p.sessionId),persona=PERSONAS[p.persona];if(!persona)fail('PERSONA_UNKNOWN');
+        const o=getOnboard(wallet,p.sessionId),identityProvider=o.recoveryIdentity?recoveryAadhaarIdp:aadhaarIdp;
+        const persona=identityProvider.resolve(p.aadhaarNumber);
+        if((await o.service.getSession(p.sessionId)).state!=='PHONE_VERIFIED')fail('PHONE_VERIFICATION_REQUIRED');
         const identity=persona.identityNullifierHash.toLowerCase();
         if(o.recoveryIdentity&&o.recoveryIdentity!==identity)fail('RECOVERY_IDENTITY_MISMATCH');
         if(!o.recoveryIdentity&&await registry.findByIdentityNullifier(identity))fail('IDENTITY_ALREADY_BOUND');
-        const serviceIdp=o.recoveryIdentity?recoveryIdp:idp;
+
         await o.service.verifyAadhaar({sessionId:p.sessionId,mode:'SYNTHETIC_MOCK_IDP',mockAssertionPayload:{
-          assertion:serviceIdp.issueAssertion({workerIdentityNullifier:identity,workerWalletAddress:wallet})}});
+          assertion:identityProvider.issueAssertion(p.aadhaarNumber,wallet)}});
         if(o.recoveryIdentity){
           const grant=recoveries.get(identity);if(!grant||!same(grant.wallet,wallet)||!await passportClient.isReissueAllowed(identity))fail('RECOVERY_NOT_AUTHORIZED');
           const verified=await o.service.getSession(p.sessionId);
