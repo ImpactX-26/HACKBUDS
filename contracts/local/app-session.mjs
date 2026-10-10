@@ -1,8 +1,9 @@
 import {createFictionalAadhaarProvider} from './fictional-aadhaar.mjs';
 import {resolve} from 'node:path';
 import {openApplicationProfile} from './application-profile.mjs';
+import {openManagedWallets} from './managed-wallets.mjs';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
-import {getAddress,verifyTypedData} from 'ethers';
+import {getAddress,verifyTypedData,TypedDataEncoder,hexlify,toUtf8Bytes} from 'ethers';
 import {createSeededSession} from './session.mjs';
 import {cacheApplicationSetup} from './setup.mjs';
 import {prepareBackendASource} from '../integration/backend-a-source.mjs';
@@ -50,6 +51,10 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     const registry=new WorkerOnboardingRegistry(),recoveryRegistry=new WorkerOnboardingRegistry();
     const phoneSecret=saved?.phoneSecret??randomBytes(32).toString('hex');
     const phone=new MockPhoneVerificationProvider({hmacSecret:phoneSecret,allowDevTestRetrieval:true});
+    const localPhoneEnabled=!!profile&&['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname);
+    const vault=localPhoneEnabled?openManagedWallets(profile):null;
+    const authPhone=new MockPhoneVerificationProvider({hmacSecret:phoneSecret,allowDevTestRetrieval:true});
+    const phoneFlows=new Map();bundle.localPhoneAuthentication=localPhoneEnabled;
     const idp=new MockIdentityProvider(saved?.idpKey),recoveryIdp=new MockIdentityProvider();
     const aadhaarIdp=createFictionalAadhaarProvider(idp,PERSONAS),recoveryAadhaarIdp=createFictionalAadhaarProvider(recoveryIdp,PERSONAS);
     registry.recordsByWorkerId=new Map(saved?.registry??[]);
@@ -73,8 +78,19 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     const verifiedSessions=new Map(),loginOtps=new Map();
     const sessionKey=token=>createHash('sha256').update(token).digest('hex');
     const completeLogin=token=>verifiedSessions.set(sessionKey(token),{expiresAt:now()+1800});
+    const getPhoneFlow=token=>{const f=phoneFlows.get(sessionKey(String(token)));if(!f||f.expiresAt<=now())fail('PHONE_FLOW_EXPIRED');return f;};
+    const phoneState=f=>({role:'pending',wallet:null,connectionMode:'managed',authentication:f.verified?'IDENTITY_REQUIRED':'PHONE_REQUIRED',
+      worker:null,passport:null,consent:null,history:[],requests:[],phoneNumber:f.normalized,onboarding:{sessionId:f.id,state:f.verified?'PHONE_VERIFIED':'PHONE_PENDING',phoneFlow:true,otp:{resendAt:f.resendAt}},phoneMasked:f.masked});
+    const managedSigner=async wallet=>{
+      assertWorker(wallet);const record=await registry.findByWallet(wallet);if(!record)fail('ONBOARDING_REQUIRED');
+      if(vault?.has(record.identityNullifier,wallet))return vault.signer(record.identityNullifier,wallet).connect(local.provider);
+      if(!bundle.devWallets.some(a=>same(a.address,wallet)))fail('EXISTING_WALLET_CONNECTION_REQUIRED');
+      return {signMessage:message=>local.provider.send('eth_sign',[wallet,hexlify(toUtf8Bytes(message))]),
+        signTypedData:(domain,types,value)=>local.provider.send('eth_signTypedData_v4',[wallet,TypedDataEncoder.getPayload(domain,types,value)]),
+        sendTransaction:async tx=>(await local.provider.getSigner(wallet)).sendTransaction(tx)};
+    };
     const expiry=()=>{
-      for(const map of [actions,onboards,recoveries,verifiedSessions,loginOtps])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
+      for(const map of [actions,onboards,recoveries,verifiedSessions,loginOtps,phoneFlows])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
       for(const[id,r]of requests)if(r.expiresAt<now()-90*86400)requests.delete(id);
       for(const r of requests.values())if(r.expiresAt<=now()&&!['CLAIMED','BORROWED','REJECTED','EXPIRED'].includes(r.status)){r.status='EXPIRED';r.proof=null;}
     };
@@ -109,9 +125,57 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     async function dispatch(method,p={}){
       expiry();
       if(method==='info')return clean(bundle);
+      if(method.startsWith('phone')){
+        if(!localPhoneEnabled)fail('LOCAL_PHONE_AUTH_DISABLED');
+        if(method==='phoneStart'){
+          if(!['create','signin'].includes(p.purpose))fail('PHONE_FLOW_INVALID');
+          const normalized=authPhone.normalizePhoneNumber(p.phone),phoneHash=authPhone.hashPhoneNumber(normalized),record=await registry.findByPhoneHash(phoneHash);
+          if(p.purpose==='create'&&record)fail('PHONE_ALREADY_BOUND');if(p.purpose==='signin'&&!record)fail('ACCOUNT_NOT_FOUND');
+          if(phoneFlows.size>=128)fail('AUTH_BUSY');
+          const delivery=await authPhone.startVerification({phoneNumber:normalized}),flowToken=randomBytes(32).toString('base64url');
+          if(p.flowToken)phoneFlows.delete(sessionKey(p.flowToken));
+          const f={id:randomUUID(),purpose:p.purpose,normalized,phoneHash,masked:delivery.maskedPhoneNumber,verificationId:delivery.verificationId,
+            expiresAt:delivery.expiresAt,resendAt:now()+delivery.cooldownSeconds,verified:false,attempts:0};
+          phoneFlows.set(sessionKey(flowToken),f);return {...phoneState(f),flowToken};
+        }
+        const f=getPhoneFlow(p.flowToken);
+        if(method==='phoneState')return phoneState(f);
+        if(method==='phoneMailbox'){if(f.verified)fail('OTP_NOT_ACTIVE');return {code:authPhone.getDevTestOtp(f.verificationId),expiresAt:f.expiresAt};}
+        if(method==='phoneVerify'){await authPhone.checkVerification({phoneNumber:f.normalized,code:p.code});f.verified=true;return phoneState(f);}
+        if(method==='phoneIdentity'){
+          if(!f.verified)fail('PHONE_VERIFICATION_REQUIRED');if(++f.attempts>5){phoneFlows.delete(sessionKey(p.flowToken));fail('IDENTITY_ATTEMPTS_EXCEEDED');}
+          const persona=aadhaarIdp.resolve(p.aadhaarNumber),identity=persona.identityNullifierHash.toLowerCase();
+          const record=await registry.findByIdentityNullifier(identity);
+          if(f.purpose==='create'&&record)fail('IDENTITY_ALREADY_BOUND');
+          if(f.purpose==='signin'&&(!record||record.phoneHash!==f.phoneHash))fail('IDENTITY_AUTHENTICATION_FAILED');
+          if(f.purpose==='create'&&await registry.findByPhoneHash(f.phoneHash))fail('PHONE_ALREADY_BOUND');
+          const address=record?.walletAddress??vault.provision(identity,f.phoneHash);
+          const signer=record?await managedSigner(address):vault.signer(identity,address);
+          // Fresh, independently verified provider signature after OTP; the fictional
+          // identifier and old registration assertion are never login credentials.
+          const assertion=aadhaarIdp.issueAssertion(p.aadhaarNumber,address),checked=idp.verifyAssertion(assertion);
+          if(!same(checked.workerWalletAddress,address)||checked.workerIdentityNullifier!==identity)fail('IDENTITY_AUTHENTICATION_FAILED');
+          const challenge=login.challenge(address),result=login.login(challenge.value.nonce,await signer.signTypedData(challenge.domain,challenge.types,challenge.value),'managed');
+          try{
+            if(!record){
+              const s=await dispatch('onboardStart',{token:result.token});
+              await dispatch('onboardWallet',{token:result.token,sessionId:s.sessionId,signature:await signer.signMessage(s.message)});
+              // Bridge the already verified local phone into the unchanged Mock OTP
+              // onboarding mechanism. This is not used with a real SMS provider.
+              await dispatch('otpStart',{token:result.token,sessionId:s.sessionId,phone:f.normalized});
+              const code=await dispatch('otpMailbox',{token:result.token,sessionId:s.sessionId});
+              await dispatch('otpVerify',{token:result.token,sessionId:s.sessionId,code:code.code});
+              await dispatch('identityCommit',{token:result.token,sessionId:s.sessionId,aadhaarNumber:p.aadhaarNumber});
+            }else completeLogin(result.token);
+          }catch(e){login.logout(result.token);throw e;}
+          phoneFlows.delete(sessionKey(p.flowToken));return result;
+        }
+        fail('METHOD_UNSUPPORTED');
+      }
+      if(method==='logout'){if(p.flowToken)phoneFlows.delete(sessionKey(p.flowToken));verifiedSessions.delete(sessionKey(String(p.token)));loginOtps.delete(sessionKey(String(p.token)));login.logout(p.token);return {loggedOut:true};}
       if(method==='publicPassport')return session.client.getPassport(String(p.passportId));
       if(method==='challenge')return login.challenge(p.wallet);
-      if(method==='login'){const result=login.login(p.nonce,p.signature,p.connectionMode);
+      if(method==='login'){if(p.connectionMode==='managed')fail('MANAGED_SESSION_REQUIRED');const result=login.login(p.nonce,p.signature,p.connectionMode);
         if(await registry.findByWallet(result.workerWallet))completeLogin(result.token);return result;}
       const wallet=login.authenticate(p.token);
       const key=sessionKey(p.token),record=await registry.findByWallet(wallet);
@@ -226,6 +290,7 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
       }
       if(method==='actionSubmit'){
         const a=actions.get(p.id);if(!a||!same(a.wallet,wallet))fail('ACTION_EXPIRED');actions.delete(p.id);
+        if(login.connectionMode(p.token)==='managed')p.signature=await (await managedSigner(wallet)).signMessage(auth.formatWorkerAuthMessage(a.value));
         const w=await bound(wallet),walletAuthorization={...a.value,signature:p.signature};auth.verifyWorkerAuthorization(walletAuthorization);
         const identityAssertion=assertion(w,wallet);
         if(a.value.action==='FETCH_FINANCIAL_DATA'){
@@ -323,6 +388,7 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
       if(method==='approve'){
         const r=getRequest(wallet,p.id,true);if(r.status!=='PENDING_WORKER')fail('REQUEST_REPLAY');
         const a=await session.client.getApproval(r.request);
+        if(login.connectionMode(p.token)==='managed')p.signature=await (await managedSigner(wallet)).signTypedData(a.domain,a.types,a.value);
         if(!same(verifyTypedData(a.domain,a.types,a.value,p.signature),wallet))fail('WORKER_APPROVAL_INVALID');
         r.request.workerSignature=p.signature;r.status='APPROVED';return {status:r.status};
       }
@@ -355,6 +421,15 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
         await local.consumers.loan.connect(local.provider).repay.staticCall(w.passportId,{from:wallet});
         return transaction(local.consumers.loan,'repay',[w.passportId]);
       }
+      if(method==='managedTransaction'){
+        if(login.connectionMode(p.token)!=='managed')fail('MANAGED_SESSION_REQUIRED');await bound(wallet);
+        if(!['consumer','approveRepayment','repay'].includes(p.kind))fail('ACTION_UNSUPPORTED');
+        const tx=p.kind==='consumer'?await dispatch('consumerTransaction',{token:p.token,id:p.id}):await dispatch('repaymentTransaction',{token:p.token,approve:p.kind==='approveRepayment'});
+        if(await local.provider.getBalance(wallet)<10000000000000000n)await dispatch('localGas',{token:p.token});
+        const sent=await (await managedSigner(wallet)).sendTransaction(tx),receipt=await sent.wait();
+        await dispatch('transactionMined',{token:p.token,hash:receipt.hash,id:p.kind==='consumer'?p.id:undefined});
+        return {hash:receipt.hash,blockNumber:receipt.blockNumber,status:receipt.status};
+      }
       if(method==='adminTransaction'){
         assertRole(wallet,'admin');const passport=await session.client.getPassport(p.passportId);
         if(p.authorize){if(passport.status!=='REVOKED')fail('REVOKE_FIRST');if(await passportClient.isReissueAllowed(passport.identityNullifierHash))fail('REISSUE_ALREADY_AUTHORIZED');return transaction(local.passport,'authorizeReissue',[passport.identityNullifierHash]);}
@@ -371,6 +446,6 @@ export async function createApplication({port=0,origin='http://localhost:3000',d
     }
     let queue=Promise.resolve(),closed=false;
     const serializedDispatch=(method,p)=>{const job=queue.then(async()=>{if(closed)fail('SESSION_CLOSED');try{return await dispatch(method,p);}finally{persist();}});queue=job.catch(()=>{});return job;};
-    return {bundle,session,dispatch:serializedDispatch,async close(){closed=true;await queue;try{persist();login.close();await session.close();}finally{profile?.close();}}};
+    return {bundle,session,dispatch:serializedDispatch,async close(){closed=true;await queue;try{persist();login.close();vault?.close();await session.close();}finally{profile?.close();}}};
   }catch(e){try{await session?.close();}finally{profile?.close();}throw e;}
 }

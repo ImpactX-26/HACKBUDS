@@ -23,7 +23,7 @@ export function createLocalWalletAuth({domain,origin,now=()=>Math.floor(Date.now
       try{recovered=getAddress(verifyTypedData(domain,localLoginTypes,c.value,signature));}catch{fail();}
       if(recovered!==c.wallet)fail();if(sessions.size>=128)throw new BackendError('AUTH_BUSY','Retry shortly.');
       const token=randomBytes(32).toString('base64url'),expiresAt=now()+1800;
-      sessions.set(tokenHash(token),{wallet:c.wallet,expiresAt,connectionMode:connectionMode==='local'?'local':'external'});return {token,workerWallet:c.wallet,expiresAt};
+      sessions.set(tokenHash(token),{wallet:c.wallet,expiresAt,connectionMode:['local','managed'].includes(connectionMode)?connectionMode:'external'});return {token,workerWallet:c.wallet,expiresAt};
     },
     authenticate(token){cleanup();if(typeof token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(token))fail();
       const session=sessions.get(tokenHash(token));if(!session)fail();return session.wallet;
