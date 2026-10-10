@@ -52,7 +52,7 @@ jobs:
         run: npm run integration:a:test
       - name: Connected application lifecycle and recovery
         working-directory: contracts
-        run: node --test --test-force-exit test/application.test.mjs
+        run: node --test --test-force-exit --test-concurrency=1 test/application-auth.test.mjs test/application.test.mjs
       - name: Build connected frontend
         run: npm --prefix frontend run build
       - name: Connected frontend HTTP security boundary

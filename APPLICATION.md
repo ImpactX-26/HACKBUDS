@@ -10,8 +10,9 @@ Open http://localhost:3000. This command installs only missing dependencies, bui
 
 ## Acceptance journey
 
-1. Select Worker 2, connect and sign the server-issued EIP-712 session challenge. The login cookie is HttpOnly and expires after 30 minutes.
-2. Start onboarding and sign the independent wallet challenge. Select RAMESH, use the supplied synthetic phone, request a random mock OTP, open **your local mock mailbox**, enter that code and complete signed synthetic identity verification. There is no fixed OTP and no real SMS or government verification.
+1. Select a local development wallet and verify ownership using the server-issued EIP-712 challenge. This creates a restricted HttpOnly bootstrap session, not a completed worker login; it expires after 30 minutes. Private worker access is denied until authentication completes.
+2. Begin identity registration and sign the independent wallet challenge. Select RAMESH, use the supplied synthetic phone and send a phone code. The local test mailbox opens inline automatically. Enter that random code, then complete signed synthetic identity verification. Until both checks complete, the UI shows pending registration rather than signed-in worker status. Resend has a live cooldown; a rejected resend retains the current mailbox. Reload resumes the active onboarding session. There is no fixed OTP and no real SMS or government verification.
+On later sign-ins, wallet ownership is followed by a fresh OTP to the already registered phone. The server checks its protected phone hash, rejects a different number, and withholds the worker dashboard, evidence, consent and consumer access until OTP verification. Admin and verifier accounts retain their distinct wallet-authenticated roles. The test mailbox emulates delivery, not actual SMS possession.
 3. Review and sign FIP consent, then mint. The attester verifies the signed FIP records, owner and recognized payout sources, calculates schema-2 Poseidon and mines the passport transaction. The private summary comes from that same authenticated snapshot, not frontend constants.
 4. Disconnect; choose Verifier; sign in. Enter the actual passport ID, select welfare, loan or a custom optional policy, and sign/send the request. Consumer policies retain their exact existing thresholds. Custom policies have no universal income rule.
 5. Disconnect; choose the original worker; sign in. Review the exact policy and expiry, approve it, then separately authorize private reconstruction. The trusted prover reconstructs Backend A evidence, checks current commitment/version and generates a real Groth16 proof. The deployed consumer verifies the proof. PASS and valid FAIL are separate from rejected integrity/authentication requests.
@@ -32,7 +33,7 @@ A replacement wallet needs its own local ETH and 100 MockUSDC to repay existing 
 
 ```powershell
 $env:GIGVAULT_LOCAL_SETUP_CACHE=(Resolve-Path contracts/artifacts/demo-setup-cache).Path
-node --test --test-force-exit contracts/test/application.test.mjs
+node --test --test-force-exit --test-concurrency=1 contracts/test/application-auth.test.mjs contracts/test/application.test.mjs
 # While the frontend runs:
 node --test contracts/test/application-http.mjs
 npm --prefix frontend run typecheck

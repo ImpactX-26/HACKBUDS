@@ -1,4 +1,4 @@
-import {randomBytes,randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {getAddress,verifyTypedData} from 'ethers';
 import {createSeededSession} from './session.mjs';
 import {cacheApplicationSetup} from './setup.mjs';
@@ -54,8 +54,11 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const commitment=new PoseidonEvidenceCommitmentAdapter(),passportClient=createBackendAPassportClient(session);
     const attestation=new AttestationService(fip,[storage.getPublicKeyPem()],idp,replay,1337,commitment,passportClient);
     const workers=new Map(),onboards=new Map(),actions=new Map(),requests=new Map(),recoveries=new Map();
+    const verifiedSessions=new Map(),loginOtps=new Map();
+    const sessionKey=token=>createHash('sha256').update(token).digest('hex');
+    const completeLogin=token=>verifiedSessions.set(sessionKey(token),{expiresAt:now()+1800});
     const expiry=()=>{
-      for(const map of [actions,requests,onboards,recoveries])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
+      for(const map of [actions,requests,onboards,recoveries,verifiedSessions,loginOtps])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
     };
     const bound=async wallet=>{const record=await registry.findByWallet(wallet);if(!record)fail('ONBOARDING_REQUIRED');
       const w=workers.get(record.identityNullifier);if(!w)fail('WORKER_NOT_FOUND');return w;};
@@ -79,11 +82,39 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
       if(method==='challenge')return login.challenge(p.wallet);
       if(method==='login')return login.login(p.nonce,p.signature);
       const wallet=login.authenticate(p.token);
-      if(method==='logout'){login.logout(p.token);return {loggedOut:true};}
+      const key=sessionKey(p.token),record=await registry.findByWallet(wallet);
+      const privileged=same(wallet,bundle.roles.admin)||same(wallet,bundle.roles.verifier);
+      const fullyAuthenticated=privileged||!!record&&verifiedSessions.has(key);
+      if(method==='logout'){verifiedSessions.delete(key);loginOtps.delete(key);login.logout(p.token);return {loggedOut:true};}
+      if(method.startsWith('loginOtp')){
+        if(!record||privileged||fullyAuthenticated)fail('PHONE_LOGIN_NOT_REQUIRED');
+        if(method==='loginOtpStart'){
+          const normalized=phone.normalizePhoneNumber(p.phone);
+          if(phone.hashPhoneNumber(normalized)!==record.phoneHash)fail('REGISTERED_PHONE_REQUIRED');
+          const v=await phone.startVerification({phoneNumber:normalized});
+          loginOtps.set(key,{normalized,verificationId:v.verificationId,expiresAt:v.expiresAt});
+          return {phoneMasked:v.maskedPhoneNumber,expiresAt:v.expiresAt,cooldownSeconds:v.cooldownSeconds};
+        }
+        const pending=loginOtps.get(key);if(!pending)fail('OTP_NOT_ACTIVE');
+        if(method==='loginOtpMailbox')return {code:phone.getDevTestOtp(pending.verificationId),expiresAt:pending.expiresAt,disclosure:'LOCAL MOCK MAILBOX — no SMS or phone possession assurance'};
+        if(method==='loginOtpVerify'){
+          await phone.checkVerification({phoneNumber:pending.normalized,code:p.code});
+          loginOtps.delete(key);completeLogin(p.token);return {authenticated:true};
+        }
+        fail('METHOD_UNSUPPORTED');
+      }
+      if(!fullyAuthenticated&&!['dashboard','onboardStart','onboardWallet','otpStart','otpMailbox','otpVerify','identityCommit'].includes(method))fail(record?'WORKER_AUTHENTICATION_INCOMPLETE':'ONBOARDING_REQUIRED');
       if(method==='dashboard'){
-        const record=await registry.findByWallet(wallet),w=record&&workers.get(record.identityNullifier);
+        if(!fullyAuthenticated){
+          const entry=[...onboards.entries()].reverse().find(([,o])=>same(o.wallet,wallet));
+          const s=entry?await entry[1].service.getSession(entry[0]):null;
+          return clean({wallet,role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
+            onboarding:s?{sessionId:s.sessionId,state:s.state,otp:entry[1].otp??null}:null,
+            worker:null,summary:null,passport:null,consent:null,history:[],requests:[]});
+        }
+        const w=record&&workers.get(record.identityNullifier);
         const passport=w?.passportId?await owner(wallet,w.passportId):null;
-        return clean({wallet,role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
+        return clean({wallet,authentication:'COMPLETE',role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
           worker:w?{name:w.persona.name,persona:w.persona.id,trust:'SYNTHETIC_MOCK_IDP',phoneMasked:record.phoneMasked}:null,
           consent:w?.consentId?(()=>{const c=consents.getConsent(w.consentId);return {consentId:c.consentId,status:c.status,expiresAt:c.expiresAt};})():null,passport,summary:w?.summary??null,
           identityState:passport?await session.client.getIdentityState(w.passportId):null,
@@ -94,6 +125,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
               status:r.status,result:r.result??null,expiresAt:r.expiresAt}))});
       }
       if(method==='onboardStart'){
+        if(record)fail('IDENTITY_ALREADY_BOUND');
         assertWorker(wallet);if(onboards.size>=128)fail('AUTH_BUSY');
         const recovery=p.recoveryIdentity?recoveries.get(p.recoveryIdentity.toLowerCase()):null;
         if(p.recoveryIdentity&&(!recovery||!same(recovery.wallet,wallet)))fail('RECOVERY_NOT_AUTHORIZED');
@@ -106,12 +138,13 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const o=getOnboard(wallet,p.sessionId);await o.service.verifyWallet({sessionId:p.sessionId,walletAddress:wallet,signature:p.signature});return {state:'WALLET_VERIFIED'};
       }
       if(method==='otpStart'){
-        const o=getOnboard(wallet,p.sessionId);return o.service.requestPhoneOtp({sessionId:p.sessionId,phoneNumber:p.phone});
+        const o=getOnboard(wallet,p.sessionId),v=await o.service.requestPhoneOtp({sessionId:p.sessionId,phoneNumber:p.phone});
+        o.otp={expiresAt:now()+300,resendAt:now()+v.cooldownSeconds,phoneMasked:v.phoneMasked};return {...v,...o.otp};
       }
       if(method==='otpMailbox'){
         const o=getOnboard(wallet,p.sessionId),s=await o.service.getSession(p.sessionId);
-        if(s.state!=='WALLET_VERIFIED')fail('OTP_NOT_ACTIVE');
-        return {code:phone.getDevTestOtp(s.phoneVerificationId),disclosure:'LOCAL MOCK MAILBOX — no SMS or phone possession assurance'};
+        if(s.state!=='WALLET_VERIFIED'||!o.otp||o.otp.expiresAt<=now())fail('OTP_NOT_ACTIVE');
+        return {code:phone.getDevTestOtp(s.phoneVerificationId),expiresAt:o.otp.expiresAt,disclosure:'LOCAL MOCK MAILBOX — no SMS or phone possession assurance'};
       }
       if(method==='otpVerify'){
         const o=getOnboard(wallet,p.sessionId);await o.service.verifyPhoneOtp({sessionId:p.sessionId,otpCode:p.code});return {state:'PHONE_VERIFIED'};
@@ -137,7 +170,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
           await o.service.commitBinding(p.sessionId);
           workers.set(identity,{persona,passportId:null,consentId:null,summary:null,history:[]});
         }
-        onboards.delete(p.sessionId);return {verified:true,trust:'SYNTHETIC_MOCK_IDP'};
+        completeLogin(p.token);onboards.delete(p.sessionId);return {verified:true,trust:'SYNTHETIC_MOCK_IDP'};
       }
       if(method==='actionChallenge'){
         const w=await bound(wallet);const allowed=['CREATE_CONSENT','MINT_PASSPORT','REFRESH_PASSPORT','REISSUE_PASSPORT','RECONSTRUCT_EVIDENCE'];

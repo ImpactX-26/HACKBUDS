@@ -22,5 +22,12 @@ test('connected HTTP boundary: origin, cookie ownership, private data and retire
   const old=await fetch(origin+'/live',{redirect:'manual'});assert.equal(old.status,307);
   const missing=await call('publicPassport',{passportId:'999999'});assert.equal(missing.status,400);assert.equal(missing.value.status,undefined);
   await call('logout',{},cookie);assert.equal((await call('dashboard',{},cookie)).status,401);
+  const worker=info.devWallets[3].address,bootstrap=(await call('challenge',{wallet:worker})).value;
+  const workerSignature=await rpc.send('eth_signTypedData_v4',[worker,TypedDataEncoder.getPayload(bootstrap.domain,bootstrap.types,bootstrap.value)]);
+  const preliminary=await call('login',{nonce:bootstrap.value.nonce,signature:workerSignature}),workerCookie=preliminary.cookie.split(';')[0];
+  const pending=await call('dashboard',{},workerCookie);assert.equal(pending.value.role,'pending');assert.equal(pending.value.worker,null);assert.equal(pending.value.summary,null);
+  assert.equal((await call('actionChallenge',{action:'CREATE_CONSENT'},workerCookie)).status,400);
+  assert.equal((await call('consumerTransaction',{id:'forged'},workerCookie)).status,400);
+  await call('logout',{},workerCookie);
  }finally{rpc.destroy();}
 });
