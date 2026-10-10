@@ -110,10 +110,7 @@ export async function checkPayload(
     const derivedAddress = (await addressOfPublic(payload.pub)).toLowerCase();
     const ownerOk = sigOk && (
       derivedAddress === passport.owner.toLowerCase() ||
-      derivedAddress === (passport.holderWallet || "").toLowerCase() ||
-      passport.owner.toLowerCase() === "0x70997970c51812dc3a010c7d01b50e0d17dc79c8" ||
-      (passport.holderWallet || "").toLowerCase() === "0x70997970c51812dc3a010c7d01b50e0d17dc79c8" ||
-      sigOk
+      derivedAddress === (passport.holderWallet || "").toLowerCase()
     );
     result.signature = sigOk && ownerOk;
     result.fresh = now < payload.exp;
