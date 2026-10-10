@@ -30,5 +30,13 @@ test('worker access requires wallet, phone OTP and identity; returning sessions 
   await assert.rejects(()=>call(next,'loginOtpVerify',{code:'000000'}),/InvalidOtpCode/);
   await call(next,'loginOtpVerify',{code:fresh.code});d=await call(next,'dashboard');assert.equal(d.role,'worker');assert.equal(d.worker.name,'Ramesh Kumar');
   await assert.rejects(()=>call(next,'loginOtpVerify',{code:fresh.code}),/PHONE_LOGIN_NOT_REQUIRED/);
+  async function signedAction(action){const a=await call(next,'actionChallenge',{action});const signature=await rpc.send('eth_sign',[wallet,hexlify(toUtf8Bytes(a.message))]);return call(next,'actionSubmit',{id:a.id,signature});}
+  await assert.rejects(()=>signedAction('FETCH_FINANCIAL_DATA'),/CONSENT_REQUIRED/);
+  await signedAction('CREATE_CONSENT');const evidence=await signedAction('FETCH_FINANCIAL_DATA');
+  assert.equal(evidence.authenticated,true);assert.ok(evidence.total>evidence.rows.length);assert.ok(evidence.counted>0);assert.ok(evidence.rows.some(x=>x.category!=='COUNTED'));assert.equal(evidence.rows[0].raw,undefined);
+  const verifierChallenge=await app.dispatch('challenge',{wallet:app.bundle.roles.verifier});const verifierSignature=await rpc.send('eth_signTypedData_v4',[app.bundle.roles.verifier,TypedDataEncoder.getPayload(verifierChallenge.domain,verifierChallenge.types,verifierChallenge.value)]);
+  const verifierToken=(await app.dispatch('login',{nonce:verifierChallenge.value.nonce,signature:verifierSignature})).token;
+  await assert.rejects(()=>call(verifierToken,'actionChallenge',{action:'FETCH_FINANCIAL_DATA'}),/ONBOARDING_REQUIRED/);
+  await call(next,'revokeConsent');await assert.rejects(()=>signedAction('FETCH_FINANCIAL_DATA'),/revoked/);
  }finally{await app.close();}
 });

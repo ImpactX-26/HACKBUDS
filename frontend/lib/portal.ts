@@ -1,0 +1,2 @@
+export const workerPages:Record<string,string>={overview:'Overview',passport:'My GigPassport',evidence:'Work Evidence',privacy:'Consent & Privacy',requests:'Verification Requests',welfare:'Welfare Benefits',credit:'Microcredit',activity:'Activity & Settings'};
+export const verifierPages:Record<string,string>={overview:'Verifier Dashboard',lookup:'Passport Lookup',new:'New Verification Request',results:'Proof Results',history:'Request History'};

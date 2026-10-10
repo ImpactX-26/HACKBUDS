@@ -4,6 +4,11 @@ import {JsonRpcProvider,TypedDataEncoder} from 'ethers';
 const origin=process.env.GIGVAULT_APP_ORIGIN??'http://localhost:3000';
 async function call(action,p={},cookie='',requestOrigin=origin){const r=await fetch(origin+'/api/app/'+action,{method:'POST',headers:{Origin:requestOrigin,'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(p)});return {status:r.status,value:await r.json(),cookie:r.headers.get('set-cookie')};}
 test('connected HTTP boundary: origin, cookie ownership, private data and retired APIs',async()=>{
+ for(const path of ['/worker','/worker/evidence','/worker/requests?requestId=untrusted','/verifier/results','/admin']){
+  const r=await fetch(origin+path,{redirect:'manual'});assert.equal(r.status,307);assert.match(r.headers.get('location'),/signup|verifier-access/);
+ }
+ const forgedSession=await fetch(origin+'/worker/evidence',{redirect:'manual',headers:{Cookie:'gv_application=forged; role=worker; authenticated=true'}});assert.equal(forgedSession.status,307);
+ assert.ok((await fetch(origin+'/')).status===200);
  assert.equal((await call('dashboard')).status,401);
  assert.equal((await call('info',{},'','https://attacker.invalid')).status,403);
  const info=(await call('info')).value,rpc=new JsonRpcProvider(info.rpcUrl),wallet=info.roles.verifier;
@@ -14,6 +19,8 @@ test('connected HTTP boundary: origin, cookie ownership, private data and retire
   assert.equal((await call('login',{nonce:challenge.value.nonce,signature})).status,401);
   const cookie=login.cookie.split(';')[0],dashboard=await call('dashboard',{wallet:info.devWallets[2].address,token:'attacker'},cookie);
   assert.equal(dashboard.status,200);assert.equal(dashboard.value.wallet,wallet);assert.equal(dashboard.value.worker,null);assert.equal(dashboard.value.summary,null);
+  const wrongRole=await fetch(origin+'/worker/evidence',{redirect:'manual',headers:{Cookie:cookie}});assert.equal(wrongRole.status,307);assert.match(wrongRole.headers.get('location'),/verifier/);
+  for(const path of ['/verifier','/verifier/new','/verifier/results','/verifier/history','/verifier/lookup'])assert.equal((await fetch(origin+path,{headers:{Cookie:cookie}})).status,200);
   const output=JSON.stringify(dashboard.value);for(const field of ['monthlyGigIncomeTotals','weeklyActivity','phoneHash','privateKey','identityAssertion','walletAuthorization','witness'])assert.ok(!output.includes(field));
   assert.equal((await call('otpMailbox',{sessionId:'other-worker'},cookie)).status,400);
   assert.equal((await call('adminTransaction',{passportId:'1'},cookie)).status,400);
@@ -26,6 +33,7 @@ test('connected HTTP boundary: origin, cookie ownership, private data and retire
   const workerSignature=await rpc.send('eth_signTypedData_v4',[worker,TypedDataEncoder.getPayload(bootstrap.domain,bootstrap.types,bootstrap.value)]);
   const preliminary=await call('login',{nonce:bootstrap.value.nonce,signature:workerSignature}),workerCookie=preliminary.cookie.split(';')[0];
   const pending=await call('dashboard',{},workerCookie);assert.equal(pending.value.role,'pending');assert.equal(pending.value.worker,null);assert.equal(pending.value.summary,null);
+  const beforeOtp=await fetch(origin+'/worker/evidence',{redirect:'manual',headers:{Cookie:workerCookie}});assert.equal(beforeOtp.status,307);assert.match(beforeOtp.headers.get('location'),/signup/);
   assert.equal((await call('actionChallenge',{action:'CREATE_CONSENT'},workerCookie)).status,400);
   assert.equal((await call('consumerTransaction',{id:'forged'},workerCookie)).status,400);
   await call('logout',{},workerCookie);

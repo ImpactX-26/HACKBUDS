@@ -31,6 +31,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
       {WorkerOnboardingRegistry},{OnboardingSessionService,formatOnboardingChallengeMessage},
       {MockPhoneVerificationProvider},{MockAadhaarVerifier}]=await Promise.all(paths.map(p=>load('backend/src/'+p)));
     const local=session.local,bundle=session.bundle;
+    const [{FIPVerifier},{TransactionClassifier}]=await Promise.all(['evidence/fip-verifier','evidence/classifier'].map(p=>load('backend/src/'+p)));
     // Application deployments begin empty; the old seeded demo remains a separate mode.
     delete bundle.fixture;delete bundle.actors;
     bundle.application=true;bundle.evidenceSource={mode:'SYNTHETIC_MOCK_IDP_SIGNED_FIP',commit:manifest.commit,
@@ -49,6 +50,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const recoveryOnboarding=new OnboardingSessionService({registry:recoveryRegistry,phoneProvider:phone,phoneHmacSecret:phoneSecret,
       mockAadhaarVerifier:new MockAadhaarVerifier(recoveryIdp)});
     const storage=new MockFIPStorage(),consents=new ConsentService(storage,idp,true);
+    const sourceVerifier=new FIPVerifier([storage.getPublicKeyPem()]);
     const fip=new MockFIPService(storage,consents,'MOCK_APNA_BANK_FIP_01',idp,true);
     const replay=new auth.ReplayProtectionRegistry(new auth.MemoryReplayStore());
     const commitment=new PoseidonEvidenceCommitmentAdapter(),passportClient=createBackendAPassportClient(session);
@@ -71,7 +73,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const getRequest=(wallet,id,workerOnly=false)=>{const r=requests.get(id);if(!r)fail('REQUEST_EXPIRED');
       if(!same(r.holder,wallet)&&(workerOnly||!same(wallet,bundle.roles.verifier)))fail('UNAUTHORIZED_WORKER');return r;};
     const transaction=(contract,method,args)=>({to:contract.target,data:contract.interface.encodeFunctionData(method,args),value:'0x0'});
-    const remember=(w,event)=>{w.history=[{event,at:now()},...w.history.filter(x=>x.at>now()-90*86400)].slice(0,20);};
+    const remember=(w,event,details={})=>{w.history=[{event,at:now(),...details},...w.history.filter(x=>x.at>now()-90*86400)].slice(0,20);};
     const summary=s=>({incomeLast6MonthsPaise:s.monthlyGigIncomeTotals.slice(-6).reduce((a,b)=>a+b,0),
       activeMonthsLast12:s.monthlyActivity.slice(-12).reduce((a,b)=>a+b,0),
       verifiedHistoryStartDay:s.verifiedHistoryStartDate,evidenceCutoff:s.evidenceUpdatedAt});
@@ -108,21 +110,23 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         if(!fullyAuthenticated){
           const entry=[...onboards.entries()].reverse().find(([,o])=>same(o.wallet,wallet));
           const s=entry?await entry[1].service.getSession(entry[0]):null;
-          return clean({wallet,role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
+          return clean({wallet,sessionExpiresAt:login.expiresAt(p.token),role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
             onboarding:s?{sessionId:s.sessionId,state:s.state,otp:entry[1].otp??null}:null,
             worker:null,summary:null,passport:null,consent:null,history:[],requests:[]});
         }
         const w=record&&workers.get(record.identityNullifier);
         const passport=w?.passportId?await owner(wallet,w.passportId):null;
-        return clean({wallet,authentication:'COMPLETE',role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
+        return clean({wallet,sessionExpiresAt:login.expiresAt(p.token),authentication:'COMPLETE',role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
           worker:w?{name:w.persona.name,persona:w.persona.id,trust:'SYNTHETIC_MOCK_IDP',phoneMasked:record.phoneMasked}:null,
-          consent:w?.consentId?(()=>{const c=consents.getConsent(w.consentId);return {consentId:c.consentId,status:c.status,expiresAt:c.expiresAt};})():null,passport,summary:w?.summary??null,
+          consent:w?.consentId?(()=>{const c=consents.getConsent(w.consentId);return {consentId:c.consentId,status:c.status,expiresAt:c.expiresAt,scope:c.scope};})():null,passport,summary:w?.summary??null,
           identityState:passport?await session.client.getIdentityState(w.passportId):null,
           balanceMockUSDC:await local.token.balanceOf(wallet).then(String),history:w?.history??[],
           reissueAllowed:record?await passportClient.isReissueAllowed(record.identityNullifier):false,
-          requests:[...requests.entries()].filter(([,r])=>same(r.holder,wallet)||same(wallet,bundle.roles.verifier))
-            .map(([id,r])=>({id,consumer:r.request.consumer,passportId:r.request.passportId,policy:r.request.policy,
-              status:r.status,result:r.result??null,expiresAt:r.expiresAt}))});
+          requests:await Promise.all([...requests.entries()].filter(([,r])=>same(r.holder,wallet)||same(wallet,bundle.roles.verifier))
+            .map(async([id,r])=>{let contextStatus=null;if(r.result){const current=await session.client.getPassport(r.request.passportId);
+              contextStatus=current.status!=='ACTIVE'?'PASSPORT_REVOKED':current.evidenceVersion!==r.verifiedContext.evidenceVersion||current.evidenceCommitment!==r.verifiedContext.evidenceCommitment?'EVIDENCE_CHANGED':Number(r.request.policy.maxEvidenceAgeDays)>0&&now()-Number(current.evidenceUpdatedAt)>Number(r.request.policy.maxEvidenceAgeDays)*86400?'STALE_EVIDENCE':'CURRENT';}
+              return {id,consumer:r.request.consumer,passportId:r.request.passportId,policy:r.request.policy,status:r.status,result:r.result??null,
+                contextStatus,verifiedAt:r.verifiedAt??null,receipt:r.receipt??null,expiresAt:r.expiresAt};}))});
       }
       if(method==='onboardStart'){
         if(record)fail('IDENTITY_ALREADY_BOUND');
@@ -173,7 +177,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         completeLogin(p.token);onboards.delete(p.sessionId);return {verified:true,trust:'SYNTHETIC_MOCK_IDP'};
       }
       if(method==='actionChallenge'){
-        const w=await bound(wallet);const allowed=['CREATE_CONSENT','MINT_PASSPORT','REFRESH_PASSPORT','REISSUE_PASSPORT','RECONSTRUCT_EVIDENCE'];
+        const w=await bound(wallet);const allowed=['CREATE_CONSENT','MINT_PASSPORT','REFRESH_PASSPORT','REISSUE_PASSPORT','RECONSTRUCT_EVIDENCE','FETCH_FINANCIAL_DATA'];
         if(!allowed.includes(p.action))fail('ACTION_UNSUPPORTED');if(actions.size>=128)fail('AUTH_BUSY');
         const expectedPassportId=p.action==='CREATE_CONSENT'?0:['MINT_PASSPORT','REISSUE_PASSPORT'].includes(p.action)?await passportClient.getNextPassportId():Number(w.passportId);
         if(p.action!=='CREATE_CONSENT'&&!w.consentId)fail('CONSENT_REQUIRED');
@@ -187,6 +191,16 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const a=actions.get(p.id);if(!a||!same(a.wallet,wallet))fail('ACTION_EXPIRED');actions.delete(p.id);
         const w=await bound(wallet),walletAuthorization={...a.value,signature:p.signature};auth.verifyWorkerAuthorization(walletAuthorization);
         const identityAssertion=assertion(w,wallet);
+        if(a.value.action==='FETCH_FINANCIAL_DATA'){
+          replay.consume(walletAuthorization);
+          const c=consents.getConsent(w.consentId),cutoff=Math.min(a.cutoff,c.scope.toTimestamp);
+          const envelope=fip.fetchSignedDataByConsent(w.consentId,cutoff,now(),{identityAssertion,walletAuthorization});
+          const verified=sourceVerifier.verifyEnvelope(envelope,w.persona.identityNullifierHash);
+          const classified=new TransactionClassifier(CURRENT_DIRECTORY_VERSION).classifyAll(verified.payload.transactions);
+          const rows=classified.slice().sort((a,b)=>b.raw.timestamp-a.raw.timestamp).slice(0,100).map(x=>({timestamp:x.raw.timestamp,amountMinor:x.raw.amountMinor,direction:x.raw.direction,
+            rail:x.raw.rail,description:x.raw.narration,remitter:x.raw.remitter.name,category:x.category,platform:x.matchedPlatform??null,reason:x.classificationReason}));
+          return {source:'SIGNED_SYNTHETIC_MOCK_FIP',authenticated:true,total:classified.length,counted:classified.filter(x=>x.isGigIncome).length,rows,cutoff};
+        }
         if(a.value.action==='CREATE_CONSENT'){
           replay.consume(walletAuthorization);
           const c=consents.createConsent({accountId:w.persona.accountId,toTimestamp:a.cutoff,durationSeconds:1800,identityAssertion,walletAuthorization});
@@ -207,7 +221,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
           }});
           r.status='PROVING';
           try{r.proof=await api.generateProof({...r.request,evidenceHandle:'private-authorized-reconstruction'});
-            r.result=await api.verify(r.request,r.proof);r.status='VERIFIED';remember(w,'PROOF_VERIFIED');return {status:r.status,result:r.result};
+            r.result=await api.verify(r.request,r.proof);r.verifiedContext={evidenceVersion:current.evidenceVersion,evidenceCommitment:current.evidenceCommitment};r.verifiedAt=now();r.status='VERIFIED';remember(w,'PROOF_VERIFIED');return {status:r.status,result:r.result};
           }catch(e){r.status='REJECTED';r.proof=null;throw e;}
         }
         let result;
@@ -215,7 +229,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         if(a.value.action==='MINT_PASSPORT')result=await attestation.attestAndMintOnChain(input);
         else if(a.value.action==='REISSUE_PASSPORT')result=await attestation.reissuePassportOnChain(input);
         else{await owner(wallet,w.passportId);result=await attestation.refreshPassportEvidenceOnChain(input,Number(w.passportId));}
-        w.passportId=String(result.passportId);w.summary=summary(result.attestation.snapshot);remember(w,a.value.action);
+        w.passportId=String(result.passportId);w.summary=summary(result.attestation.snapshot);remember(w,a.value.action,{hash:passportClient.receipts.at(-1)?.hash});
         return {passport:await session.client.getPassport(w.passportId),summary:w.summary};
       }
       if(method==='revokeConsent'){
@@ -227,9 +241,10 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const passport=await session.client.getPassport(p.passportId);if(passport.status!=='ACTIVE')fail('PASSPORT_REVOKED');
         const base=consumerPolicies[p.consumer]??{incomeEnabled:'0',incomeWindowMonths:'0',minAverageIncomePaise:'0',activityEnabled:'0',
           activityIsWeekly:'0',activityWindow:'0',minActivePeriods:'0',historyEnabled:'0',minHistoryMonths:'0',maxEvidenceAgeDays:'30'};
-        const policy={...base,...(p.consumer==='gate'?p.criteria:{}),requestId:'0x'+randomBytes(32).toString('hex'),verifierId:wallet,expiresAt:String(now()+900)};
+        const ttl=p.expiresInSeconds===undefined?900:Number(p.expiresInSeconds);if(!Number.isInteger(ttl)||ttl<60||ttl>3600)fail('INVALID_REQUEST_EXPIRY');
+        const policy={...base,...(p.consumer==='gate'?p.criteria:{}),requestId:'0x'+randomBytes(32).toString('hex'),verifierId:wallet,expiresAt:String(now()+ttl)};
         validatePolicy(policy);const domain=domainFor(1337,bundle.contracts[p.consumer].address),id=policy.requestId;
-        requests.set(id,{holder:passport.holderWallet,expiresAt:now()+900,status:'AWAITING_VERIFIER',request:{protocolVersion:bundle.protocolVersion,
+        requests.set(id,{holder:passport.holderWallet,expiresAt:now()+ttl,status:'AWAITING_VERIFIER',request:{protocolVersion:bundle.protocolVersion,
           eligibilityProfile:bundle.eligibilityProfile,consumer:p.consumer,passportId:String(p.passportId),policy}});
         return clean({id,domain,types:policyTypes,value:policy});
       }
@@ -266,8 +281,8 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const tx=await local.provider.getTransaction(p.hash);if(!same(tx.from,wallet))fail('UNAUTHORIZED_WORKER');
         if(p.id){const r=getRequest(wallet,p.id,true);const kind=r.request.consumer==='welfare'?'claim':'borrow';
           if(!same(tx.to,local.consumers[r.request.consumer].target)||!await local.consumers[r.request.consumer].consumedRequests(r.request.policy.requestId))fail('TRANSACTION_MISMATCH');
-          r.status=kind==='claim'?'CLAIMED':'BORROWED';r.proof=null;}
-        const record=await registry.findByWallet(wallet);if(record)remember(workers.get(record.identityNullifier),'TRANSACTION '+receipt.hash);
+          r.status=kind==='claim'?'CLAIMED':'BORROWED';r.receipt={hash:receipt.hash,blockNumber:receipt.blockNumber,status:receipt.status};r.proof=null;}
+        const record=await registry.findByWallet(wallet);if(record)remember(workers.get(record.identityNullifier),'TRANSACTION_CONFIRMED',{hash:receipt.hash});
         return {hash:receipt.hash,status:receipt.status};
       }
       if(method==='repaymentTransaction'){

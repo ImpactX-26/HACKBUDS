@@ -29,6 +29,7 @@ export function createLocalWalletAuth({domain,origin,now=()=>Math.floor(Date.now
       const session=sessions.get(tokenHash(token));if(!session)fail();return session.wallet;
     },
     logout(token){if(typeof token==='string')sessions.delete(tokenHash(token));},
+    expiresAt(token){cleanup();const s=typeof token==='string'&&sessions.get(tokenHash(token));if(!s)fail();return s.expiresAt;},
     close(){challenges.clear();sessions.clear();}
   });
 }
