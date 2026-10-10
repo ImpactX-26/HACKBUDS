@@ -14,6 +14,8 @@ jobs:
   local-protocol:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GIGVAULT_LOCAL_SETUP_CACHE: ${{ github.workspace }}/contracts/artifacts/demo-setup-cache
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -37,6 +39,8 @@ jobs:
           npm --prefix frontend run typecheck
       - name: Backend A regression
         run: npm --prefix backend test
+      - name: Prepare and verify reusable public local proving prerequisites
+        run: node contracts/scripts/prepare-application-cache.mjs
       - name: Witness, field and historical review parity
         working-directory: circuits
         run: node --test test/fr-v02.test.mjs dist/circuits/test/interoperability.test.js dist/circuits/test/backend-a-gate1.test.js test/eligibility.test.mjs dist/circuits/test/income-activity.test.js
@@ -46,3 +50,18 @@ jobs:
       - name: Actual A reconstruction, Groth16 and local consumer transactions
         working-directory: contracts
         run: npm run integration:a:test
+      - name: Connected application lifecycle and recovery
+        working-directory: contracts
+        run: node --test --test-force-exit --test-concurrency=1 test/application-auth.test.mjs test/application.test.mjs
+      - name: Build connected frontend
+        run: npm --prefix frontend run build
+      - name: Connected frontend HTTP security boundary
+        run: |
+          npm --prefix frontend run start -- --hostname 127.0.0.1 --port 3000 > /tmp/gigvault-ui.log 2>&1 &
+          frontend_pid=$!
+          trap 'kill "$frontend_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:3000/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node --test contracts/test/application-http.mjs

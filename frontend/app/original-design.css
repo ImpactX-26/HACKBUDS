@@ -1,0 +1,133 @@
+/* Restored presentation from 1372b64 (original frontend) and 598eb9e (motion).
+   This layer adapts the original tokens to the existing product routes; no auth/state logic. */
+body {
+  background: var(--bg);
+  background-image:
+    radial-gradient(at 10% 10%, rgba(186,230,253,.8) 0, transparent 50%),
+    radial-gradient(at 90% 20%, rgba(224,242,254,.9) 0, transparent 50%),
+    radial-gradient(at 50% 90%, rgba(191,219,254,.6) 0, transparent 50%),
+    linear-gradient(rgba(14,165,233,.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14,165,233,.05) 1px, transparent 1px);
+  background-size:100% 100%,100% 100%,100% 100%,40px 40px,40px 40px;
+  background-attachment:fixed;
+  font-family:var(--f-body);
+  color:var(--ink);
+}
+h1,h2,h3 {font-family:var(--f-display)}
+.gv-brand.brand {
+  font-family:var(--font-fancy),Georgia,serif;
+  font-size:32px;font-weight:800;letter-spacing:-.01em;
+  background:linear-gradient(135deg,#0284c7,#0f172a);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  width:max-content;
+}
+.gv-brand.brand:hover {text-decoration:none}
+.gv-hero h1,.gv-auth-story h1,.gv-heading h1 {
+  background:linear-gradient(135deg,#0f172a,#0369a1);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+h1 em {-webkit-text-fill-color:#0284c7;color:var(--accent)}
+.gv-muted,.gv-hero-copy,.gv-product-link p,.gv-heading p,.gv-feature-grid p,
+.gv-stat span,.gv-key-value>span,.gv-row small,.gv-environment p {color:var(--muted)}
+.gv-eyebrow,.gv-text-link,.gv-product-link>span {color:#0369a1}
+.gv-card,.gv-auth-card,.gv-stat,.gv-request,.gv-product-link,.gv-floating {
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:0 8px 32px rgba(2,70,110,.09);
+  transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease;
+}
+.gv-product-link:hover {
+  transform:translateY(-4px);background:var(--surface-hover);border-color:var(--line-hover);
+  box-shadow:0 12px 24px rgba(2,70,110,.14);text-decoration:none;color:var(--ink);
+}
+.gv-button {
+  background:linear-gradient(135deg,#0284c7,#2563eb);border:0;border-radius:12px;
+  box-shadow:0 4px 14px var(--accent-glow);letter-spacing:.01em;
+  transition:transform .2s ease,box-shadow .2s ease,background .2s ease;
+}
+.gv-button:hover:not(:disabled) {
+  background:linear-gradient(135deg,#0369a1,#1d4ed8);transform:translateY(-2px);
+  box-shadow:0 6px 20px rgba(2,132,199,.3);text-decoration:none;
+}
+.gv-button:active:not(:disabled) {transform:translateY(0) scale(.98)}
+.gv-button.secondary {background:var(--surface);color:#0369a1;border:1px solid #7dd3fc;box-shadow:none}
+.gv-button.secondary:hover:not(:disabled) {background:#f0f9ff;color:#075985}
+.gv-button.danger {background:#fff1f2;color:#b91c1c;border:1px solid #fda4af;box-shadow:none}
+.gv-button.danger:hover:not(:disabled) {background:#ffe4e6;color:#991b1b}
+.gv-button:disabled {box-shadow:none}
+input:not([type=checkbox]),select {
+  background:rgba(255,255,255,.92);border-color:#b6d9eb;border-radius:10px;
+  transition:border-color .2s ease,box-shadow .2s ease;
+}
+input:not([type=checkbox]):focus,select:focus {border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,189,248,.2)}
+.gv-public-header {padding-top:30px;padding-bottom:30px}
+.gv-public-header nav {background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:6px;gap:6px;box-shadow:0 2px 8px #0284c70a}
+.gv-public-header nav>a:not(.gv-button) {padding:9px 14px;border-radius:9px;color:#0369a1}
+.gv-public-header nav>a:not(.gv-button):hover {background:#e0f2fe;text-decoration:none}
+.gv-sidebar {background:rgba(255,255,255,.7);border-color:var(--line);backdrop-filter:blur(16px)}
+.gv-sidebar>.gv-brand {margin-left:12px}
+.gv-sidebar nav>a {border:1px solid transparent;color:#475569;border-radius:12px}
+.gv-sidebar nav>a:hover {background:#f0f9ff;border-color:var(--line);text-decoration:none}
+.gv-sidebar nav>a.active {background:linear-gradient(135deg,#f0f9ff,#bae6fd);color:#075985;border-color:#7dd3fc;box-shadow:0 2px 8px #0284c715}
+.gv-nav-label,.gv-sidebar-foot {color:#536779}
+.gv-sidebar-foot details {font-size:11px}
+.gv-topbar {background:rgba(255,255,255,.72);border-color:var(--line);color:#475569;backdrop-filter:blur(12px)}
+.gv-welcome-banner,.gv-consent-scope,.gv-environment {
+  background:rgba(240,249,255,.82);border:1px solid #bae6fd;border-radius:16px;
+  box-shadow:0 6px 24px #0284c70a;
+}
+.gv-environment {font-size:13px}
+.gv-environment summary {font-weight:700;color:#075985;border:0;list-style-position:inside}
+.gv-demo-label {background:#e0f2fe;color:#075985;padding:4px 10px;border-radius:20px}
+.gv-criteria>div {background:rgba(240,249,255,.86);border-color:#bae6fd;border-radius:14px}
+.gv-criteria>div.condition-pass {background:rgba(209,250,229,.7);border-color:rgba(5,150,105,.3)}
+.gv-criteria>div.condition-fail {background:rgba(254,226,226,.7);border-color:rgba(220,38,38,.3)}
+.gv-stat strong {font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:#075985}
+.gv-stat:first-child {background:rgba(219,234,254,.78);border-color:#93c5fd}
+.gv-stat:nth-child(2) {background:rgba(209,250,229,.72);border-color:#6ee7b7}
+.gv-stat:nth-child(3) {background:rgba(255,255,255,.88)}
+.gv-tag,.gv-badge {font-weight:700}.gv-tag {background:#e0f2fe;color:#0369a1}
+.gv-table th {background:#e0f2fe;color:#334155}.gv-table td {border-color:#d4e9f3}
+.gv-table tbody tr:hover {background:#f0f9ff}
+.gv-otp-box {background:#e0f2fe;border-color:#7dd3fc;border-radius:14px}
+.gv-otp-box strong {color:#075985;font-family:var(--f-mono)}
+.gv-steps li {color:#475569}.gv-steps li.current {color:#0369a1}
+.gv-steps li.current>span {background:#0284c7;border-color:#0284c7;box-shadow:0 2px 8px #0284c740}
+.gv-steps li.done>span {background:#d1fae5;border-color:#6ee7b7}
+.gv-passport {background:linear-gradient(135deg,#075985,#0284c7 65%,#2563eb);box-shadow:0 18px 40px #0284c729}
+.gv-passport p,.gv-passport p:first-child,.gv-passport>span {color:#e0f2fe}
+.gv-passport-seal {border-color:#7dd3fc;color:#e0f2fe}
+.gv-result-pipeline {display:block}
+.gv-result-pipeline>.chk {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px!important}
+.gv-result-pipeline .chk>li {padding:12px!important}
+.gv-result-pipeline .chk>li>div {min-width:0;overflow-wrap:anywhere}
+.gv-footer {color:#475569;border-color:#bae6fd}
+@media(max-width:760px){
+  .gv-brand.brand {font-size:28px}
+  .gv-public-header {padding:20px 18px;gap:14px;flex-wrap:wrap}
+  .gv-public-header nav {max-width:none;width:100%;justify-content:space-between;gap:0}
+  .gv-public-header nav>a:not(.gv-button) {padding:8px;font-size:11px}
+  .gv-public-header .gv-button {font-size:11px;padding:8px 12px}
+  .gv-result-pipeline>.chk {grid-template-columns:1fr}
+  .gv-content {padding:24px 18px}
+  .gv-sidebar nav {scrollbar-width:thin}
+  .gv-section-title {gap:12px;align-items:flex-start}
+  .gv-section-title h2 {min-width:0}
+  .gv-heading {gap:12px}.gv-heading>.gv-actions {flex-shrink:0}
+  .gv-hero-art {padding-right:14px}.gv-floating {right:0}
+  .gv-sidebar-foot {display:none}
+}
+@media(prefers-reduced-motion:reduce){.gv-button,.gv-product-link,.gv-card{transition:none!important}.gv-button:hover:not(:disabled),.gv-product-link:hover{transform:none}}
+.gv-work-types{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}.gv-work-types>span{background:rgba(255,255,255,.8);border:1px solid #bae6fd;border-radius:99px;padding:6px 11px;font-size:12px;color:#075985}
+details summary{background:rgba(240,249,255,.88);border:1px solid #bae6fd;color:#075985}details summary:hover{background:#e0f2fe}.gv-environment summary{border:0;background:transparent}
+@media(max-width:760px){.gv-heading{flex-direction:column}.gv-heading>.gv-actions{margin:0}.gv-heading>div:first-child{width:100%}}
+.gv-auth-container{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}.gv-auth-story{min-width:0}@media(max-width:760px){.gv-auth-container{grid-template-columns:minmax(0,1fr)}}
+
+/* Worker entry uses the existing blue/glass identity and keeps connection controls secondary. */
+.gv-entry-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:28px}.gv-entry-tabs .gv-button{flex:1;min-width:105px;padding:10px 12px}
+.gv-entry-stage{animation:gv-entry-appear .2s ease-out}.gv-entry-stage h2{margin:8px 0 18px}.gv-entry-promise,.gv-entry-recovery{padding:20px;border:1px solid #bcdcec;border-radius:18px;background:#edf8ff;margin:18px 0}.gv-entry-promise h3{margin:0 0 10px}.gv-entry-recovery dl>div{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #cee5ef;padding:10px 0}.gv-entry-recovery dt{color:#53748c}.gv-entry-recovery dd{margin:0;text-align:right;font-weight:600}
+.gv-entry-demo{margin-top:26px;border-top:1px solid #cce1ec;padding-top:18px}.gv-entry-progress{height:7px;border-radius:12px;background:#d2e8f4;overflow:hidden}.gv-entry-progress>span{display:block;height:100%;background:linear-gradient(90deg,#3678b5,#4362ef);transition:width .25s}.gv-worker-entry input{min-height:50px}.gv-worker-entry .gv-form>.gv-button{width:100%}
+@keyframes gv-entry-appear{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:700px){.gv-worker-entry .gv-auth-story h1{font-size:30px}.gv-entry-tabs{gap:5px}.gv-entry-tabs .gv-button{min-width:80px;font-size:12px;padding:10px 7px}.gv-entry-recovery dl>div{font-size:13px}.gv-worker-entry .gv-auth-card{padding:22px 18px}.gv-worker-entry .gv-steps{white-space:normal;display:grid;grid-template-columns:1fr 1fr;overflow:visible;gap:12px}.gv-worker-entry .gv-steps li{white-space:normal}}
+@media(prefers-reduced-motion:reduce){.gv-entry-stage{animation:none}.gv-entry-progress>span{transition:none}}
+@media(max-width:700px){.gv-worker-entry .gv-auth-story{padding:0}.gv-worker-entry .gv-auth-story h1{font-size:26px;line-height:1.2;margin:8px 0}.gv-worker-entry .gv-auth-story>p{margin:6px 0}.gv-worker-entry .gv-auth-story>.gv-entry-promise{display:none}.gv-worker-entry .gv-steps{margin:16px 0;gap:8px}.gv-worker-entry .gv-entry-tabs{margin-bottom:18px}}

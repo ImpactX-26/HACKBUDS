@@ -6,6 +6,15 @@ import {root as contractsRoot} from './compile.mjs';
 import {digest} from '../../circuits/service/engine.mjs';
 const circuitsRoot=resolve(contractsRoot,'../circuits');
 const transcriptHash='6247a3433948b35fbfae414fa5a9355bfb45f56efa7ab4929e669264a0258976741dfbe3288bfb49828e5df02c2e633df38d2245e30162ae7e3bcca5b8b49345';
+/** Public development proving prerequisites only; no ceremony entropy or wallet material. */
+export function cacheApplicationSetup(setup){
+  const cache=resolve(contractsRoot,'artifacts/demo-setup-cache');
+  if(existsSync(resolve(cache,'manifest.json')))return;
+  mkdirSync(cache,{recursive:true});
+  for(const [key,name]of Object.entries({zkey:'final.zkey',vk:'vk.json',verifier:'Groth16Verifier.sol'}))copyFileSync(setup[key],resolve(cache,name));
+  writeFileSync(resolve(cache,'manifest.json'),JSON.stringify({localOnly:true,commitmentProfile:'gv-poseidon-hash-only-0.2.0',
+    setupId:setup.id,setupDigests:setup.digests},null,2)+'\n');
+}
 async function cli(args) {
   await new Promise((ok,no)=>{
     const child=spawn(process.execPath,[resolve(circuitsRoot,'node_modules/snarkjs/build/cli.cjs'),...args],
