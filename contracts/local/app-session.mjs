@@ -1,3 +1,5 @@
+import {resolve} from 'node:path';
+import {openApplicationProfile} from './application-profile.mjs';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {getAddress,verifyTypedData} from 'ethers';
 import {createSeededSession} from './session.mjs';
@@ -17,9 +19,12 @@ const clean=x=>JSON.parse(JSON.stringify(x,(_,v)=>typeof v==='bigint'?v.toString
 /** Local application controller. Only its owning parent has access to private IPC.
  * No raw evidence/witness endpoint. All authority comes from verified wallet signatures.
  * Loopback Ganache accounts are intentionally unlocked development wallets, never production keys. */
-export async function createApplication({port=0,origin='http://localhost:3000'}={}){
-  const session=await createSeededSession({port,application:true});
+export async function createApplication({port=0,origin='http://localhost:3000',dataDirectory}={}){
+  const profile=openApplicationProfile(dataDirectory);let session;
   try{
+    session=await createSeededSession({port,application:true,profile});
+    const saved=profile?.read('accounts.json');
+    if(saved&&(saved.version!==1||!['registry','workers','consents','requests'].every(k=>Array.isArray(saved[k]))||typeof saved.phoneSecret!=='string'||!saved.idpKey?.privateKeyPem||!saved.fipKey?.privateKeyPem))throw Error('APPLICATION_ACCOUNT_STATE_INVALID');
     cacheApplicationSetup(session.local.setup);
     const {manifest,importModule:load}=prepareBackendASource();
     const paths=['fip/storage','fip/consent-service','fip/fip-service','identity/mock-idp','identity/wallet-auth',
@@ -34,7 +39,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const [{FIPVerifier},{TransactionClassifier}]=await Promise.all(['evidence/fip-verifier','evidence/classifier'].map(p=>load('backend/src/'+p)));
     // Application deployments begin empty; the old seeded demo remains a separate mode.
     delete bundle.fixture;delete bundle.actors;
-    bundle.application=true;bundle.evidenceSource={mode:'SYNTHETIC_MOCK_IDP_SIGNED_FIP',commit:manifest.commit,
+    bundle.application=true;bundle.persistentAccounts=!!profile;bundle.evidenceSource={mode:'SYNTHETIC_MOCK_IDP_SIGNED_FIP',commit:manifest.commit,
       transport:'private-parent-child-IPC',realAadhaarAvailable:false};
     const accounts=await local.provider.listAccounts();
     bundle.devWallets=await Promise.all(accounts.map(async(a,index)=>({address:await a.getAddress(),
@@ -42,25 +47,34 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const login=createLocalWalletAuth({origin,domain:{name:'GigVaultLocalSession',version:'1',chainId:1337,
       verifyingContract:bundle.contracts.passport.address}});
     const registry=new WorkerOnboardingRegistry(),recoveryRegistry=new WorkerOnboardingRegistry();
-    const phoneSecret=randomBytes(32).toString('hex');
+    const phoneSecret=saved?.phoneSecret??randomBytes(32).toString('hex');
     const phone=new MockPhoneVerificationProvider({hmacSecret:phoneSecret,allowDevTestRetrieval:true});
-    const idp=new MockIdentityProvider(),recoveryIdp=new MockIdentityProvider();
+    const idp=new MockIdentityProvider(saved?.idpKey),recoveryIdp=new MockIdentityProvider();
+    registry.recordsByWorkerId=new Map(saved?.registry??[]);
+    for(const record of await registry.listActiveWorkers())idp.rebindWorkerWallet(record.identityNullifier,record.walletAddress);
     const onboarding=new OnboardingSessionService({registry,phoneProvider:phone,phoneHmacSecret:phoneSecret,
       mockAadhaarVerifier:new MockAadhaarVerifier(idp)});
     const recoveryOnboarding=new OnboardingSessionService({registry:recoveryRegistry,phoneProvider:phone,phoneHmacSecret:phoneSecret,
       mockAadhaarVerifier:new MockAadhaarVerifier(recoveryIdp)});
-    const storage=new MockFIPStorage(),consents=new ConsentService(storage,idp,true);
+    const storage=new MockFIPStorage(saved?.fipKey);storage.consents=new Map(saved?.consents??[]);
+    const consents=new ConsentService(storage,idp,true);
     const sourceVerifier=new FIPVerifier([storage.getPublicKeyPem()]);
     const fip=new MockFIPService(storage,consents,'MOCK_APNA_BANK_FIP_01',idp,true);
-    const replay=new auth.ReplayProtectionRegistry(new auth.MemoryReplayStore());
+    const replay=new auth.ReplayProtectionRegistry(profile?new auth.FileReplayStore(resolve(profile.root,'replay.json')):new auth.MemoryReplayStore());
     const commitment=new PoseidonEvidenceCommitmentAdapter(),passportClient=createBackendAPassportClient(session);
     const attestation=new AttestationService(fip,[storage.getPublicKeyPem()],idp,replay,1337,commitment,passportClient);
-    const workers=new Map(),onboards=new Map(),actions=new Map(),requests=new Map(),recoveries=new Map();
+    const workers=new Map(saved?.workers??[]),onboards=new Map(),actions=new Map(),requests=new Map(saved?.requests??[]),recoveries=new Map();
+    for(const r of requests.values())if(r.status==='PROVING'){r.status='APPROVED';r.proof=null;}
+    const persist=()=>profile?.write('accounts.json',{version:1,phoneSecret,idpKey:idp.keyPair,fipKey:storage.getKeyPair(),
+      registry:[...registry.recordsByWorkerId],workers:[...workers],consents:[...storage.consents],requests:[...requests]});
+    persist();
     const verifiedSessions=new Map(),loginOtps=new Map();
     const sessionKey=token=>createHash('sha256').update(token).digest('hex');
     const completeLogin=token=>verifiedSessions.set(sessionKey(token),{expiresAt:now()+1800});
     const expiry=()=>{
-      for(const map of [actions,requests,onboards,recoveries,verifiedSessions,loginOtps])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
+      for(const map of [actions,onboards,recoveries,verifiedSessions,loginOtps])for(const[k,v]of map)if(v.expiresAt<=now())map.delete(k);
+      for(const[id,r]of requests)if(r.expiresAt<now()-90*86400)requests.delete(id);
+      for(const r of requests.values())if(r.expiresAt<=now()&&!['CLAIMED','BORROWED','REJECTED','EXPIRED'].includes(r.status)){r.status='EXPIRED';r.proof=null;}
     };
     const bound=async wallet=>{const record=await registry.findByWallet(wallet);if(!record)fail('ONBOARDING_REQUIRED');
       const w=workers.get(record.identityNullifier);if(!w)fail('WORKER_NOT_FOUND');return w;};
@@ -70,7 +84,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
     const assertion=(w,wallet)=>idp.issueAssertion({workerIdentityNullifier:w.persona.identityNullifierHash,workerWalletAddress:wallet});
     const chainTime=async()=>Number((await local.provider.getBlock('latest')).timestamp);
     const getOnboard=(wallet,id)=>{const v=onboards.get(id);if(!v||!same(v.wallet,wallet))fail('ONBOARDING_SESSION_REJECTED');return v;};
-    const getRequest=(wallet,id,workerOnly=false)=>{const r=requests.get(id);if(!r)fail('REQUEST_EXPIRED');
+    const getRequest=(wallet,id,workerOnly=false)=>{const r=requests.get(id);if(!r||r.expiresAt<=now())fail('REQUEST_EXPIRED');
       if(!same(r.holder,wallet)&&(workerOnly||!same(wallet,bundle.roles.verifier)))fail('UNAUTHORIZED_WORKER');return r;};
     const transaction=(contract,method,args)=>({to:contract.target,data:contract.interface.encodeFunctionData(method,args),value:'0x0'});
     const remember=(w,event,details={})=>{w.history=[{event,at:now(),...details},...w.history.filter(x=>x.at>now()-90*86400)].slice(0,20);};
@@ -82,7 +96,8 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
       if(method==='info')return clean(bundle);
       if(method==='publicPassport')return session.client.getPassport(String(p.passportId));
       if(method==='challenge')return login.challenge(p.wallet);
-      if(method==='login')return login.login(p.nonce,p.signature);
+      if(method==='login'){const result=login.login(p.nonce,p.signature,p.connectionMode);
+        if(await registry.findByWallet(result.workerWallet))completeLogin(result.token);return result;}
       const wallet=login.authenticate(p.token);
       const key=sessionKey(p.token),record=await registry.findByWallet(wallet);
       const privileged=same(wallet,bundle.roles.admin)||same(wallet,bundle.roles.verifier);
@@ -110,13 +125,13 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         if(!fullyAuthenticated){
           const entry=[...onboards.entries()].reverse().find(([,o])=>same(o.wallet,wallet));
           const s=entry?await entry[1].service.getSession(entry[0]):null;
-          return clean({wallet,sessionExpiresAt:login.expiresAt(p.token),role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
+          return clean({wallet,connectionMode:login.connectionMode(p.token),sessionExpiresAt:login.expiresAt(p.token),role:'pending',authentication:record?'PHONE_REQUIRED':'ONBOARDING_REQUIRED',phoneMasked:record?.phoneMasked,
             onboarding:s?{sessionId:s.sessionId,state:s.state,otp:entry[1].otp??null}:null,
             worker:null,summary:null,passport:null,consent:null,history:[],requests:[]});
         }
         const w=record&&workers.get(record.identityNullifier);
         const passport=w?.passportId?await owner(wallet,w.passportId):null;
-        return clean({wallet,sessionExpiresAt:login.expiresAt(p.token),authentication:'COMPLETE',role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
+        return clean({wallet,connectionMode:login.connectionMode(p.token),sessionExpiresAt:login.expiresAt(p.token),authentication:'COMPLETE',role:same(wallet,bundle.roles.admin)?'admin':same(wallet,bundle.roles.verifier)?'verifier':'worker',
           worker:w?{name:w.persona.name,persona:w.persona.id,trust:'SYNTHETIC_MOCK_IDP',phoneMasked:record.phoneMasked}:null,
           consent:w?.consentId?(()=>{const c=consents.getConsent(w.consentId);return {consentId:c.consentId,status:c.status,expiresAt:c.expiresAt,scope:c.scope};})():null,passport,summary:w?.summary??null,
           identityState:passport?await session.client.getIdentityState(w.passportId):null,
@@ -184,8 +199,10 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const value={action:p.action,workerWalletAddress:wallet.toLowerCase(),consentId:p.action==='CREATE_CONSENT'?'':w.consentId,
           expectedPassportId,timestamp:now(),chainId:1337,nonce:randomUUID()};
         const id=randomUUID(),cutoff=await chainTime();
+        const scopeCutoff=p.action==='RECONSTRUCT_EVIDENCE'?Number((await owner(wallet,w.passportId)).evidenceUpdatedAt):
+          p.action==='FETCH_FINANCIAL_DATA'?Math.min(cutoff,consents.getConsent(w.consentId).scope.toTimestamp):cutoff;
         actions.set(id,{wallet,value,cutoff,requestId:p.requestId,expiresAt:now()+300});
-        return {id,value,message:auth.formatWorkerAuthMessage(value),scope:{source:'SIGNED_SYNTHETIC_MOCK_FIP',account:w.persona.accountId,cutoff}};
+        return {id,value,message:auth.formatWorkerAuthMessage(value),scope:{source:'SIGNED_SYNTHETIC_MOCK_FIP',account:w.persona.accountId,cutoff:scopeCutoff}};
       }
       if(method==='actionSubmit'){
         const a=actions.get(p.id);if(!a||!same(a.wallet,wallet))fail('ACTION_EXPIRED');actions.delete(p.id);
@@ -235,8 +252,33 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
       if(method==='revokeConsent'){
         const w=await bound(wallet);if(w.consentId)consents.revokeConsent(w.consentId);remember(w,'CONSENT_REVOKED');return {revoked:true};
       }
+      if(method==='localGas'){
+        assertWorker(wallet);const w=await bound(wallet);
+        if(w.gasFundedAt&&now()-w.gasFundedAt<86400||await local.provider.getBalance(wallet)>=100000000000000000n)fail('LOCAL_GAS_ALREADY_FUNDED');
+        // Local test ETH only, fixed amount and session-owned recipient. No caller-supplied transfer.
+        const sent=await local.signers[0].sendTransaction({to:wallet,value:250000000000000000n});
+        const receipt=await sent.wait();w.gasFundedAt=now();remember(w,'LOCAL_TEST_GAS',{hash:receipt.hash});
+        return {hash:receipt.hash,blockNumber:receipt.blockNumber,status:receipt.status};
+      }
+      if(method==='applyService'){
+        assertWorker(wallet);if(requests.size>=512)fail('REQUEST_BUSY');if(!['loan','welfare'].includes(p.consumer))fail('CONSUMER_UNSUPPORTED');
+        const w=await bound(wallet);if(!w.passportId)fail('PASSPORT_REQUIRED');
+        const passport=await owner(wallet,w.passportId);if(passport.status!=='ACTIVE')fail('PASSPORT_REVOKED');
+        const state=await session.client.getIdentityState(w.passportId);
+        if(p.consumer==='loan'&&state.principal!=='0')fail('ACTIVE_LOAN');
+        if(p.consumer==='welfare'&&state.claimed)fail('BENEFIT_ALREADY_CLAIMED');
+        if([...requests.values()].some(r=>same(r.holder,wallet)&&r.request.consumer===p.consumer&&r.expiresAt>now()&&(['PENDING_WORKER','APPROVED','PROVING'].includes(r.status)||r.status==='VERIFIED'&&r.verifiedContext?.evidenceVersion===passport.evidenceVersion&&r.verifiedContext?.evidenceCommitment===passport.evidenceCommitment&&!['income','history','activity'].some(k=>r.result?.enabled[k]&&r.result[k]==='FAIL'))))fail('APPLICATION_ALREADY_ACTIVE');
+        // The authorized LOCAL service signs the existing consumer policy format.
+        // Caller-supplied criteria, passport, signer and signature are never accepted.
+        const policy={...consumerPolicies[p.consumer],requestId:'0x'+randomBytes(32).toString('hex'),verifierId:bundle.roles.verifier,expiresAt:String(now()+900)};
+        validatePolicy(policy);const domain=domainFor(1337,bundle.contracts[p.consumer].address);
+        const verifierSignature=await local.signing(bundle.roles.verifier).signTypedData(domain,policyTypes,policy);
+        const id=policy.requestId;requests.set(id,{holder:wallet,expiresAt:Number(policy.expiresAt),status:'PENDING_WORKER',initiatedBy:'WORKER',request:{
+          protocolVersion:bundle.protocolVersion,eligibilityProfile:bundle.eligibilityProfile,consumer:p.consumer,passportId:w.passportId,policy,verifierSignature}});
+        remember(w,'SERVICE_APPLICATION',{consumer:p.consumer,requestId:id});return {id,status:'PENDING_WORKER'};
+      }
       if(method==='policyPrepare'){
-        assertRole(wallet,'verifier');if(requests.size>=128)fail('REQUEST_BUSY');
+        assertRole(wallet,'verifier');if(requests.size>=512)fail('REQUEST_BUSY');if([...requests.values()].filter(r=>r.expiresAt>now()).length>=128)fail('REQUEST_BUSY');
         if(!['gate','welfare','loan'].includes(p.consumer))fail('CONSUMER_UNSUPPORTED');
         const passport=await session.client.getPassport(p.passportId);if(passport.status!=='ACTIVE')fail('PASSPORT_REVOKED');
         const base=consumerPolicies[p.consumer]??{incomeEnabled:'0',incomeWindowMonths:'0',minAverageIncomePaise:'0',activityEnabled:'0',
@@ -280,7 +322,8 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
         const receipt=await local.provider.getTransactionReceipt(p.hash);if(!receipt||receipt.status!==1)fail('TRANSACTION_NOT_SUCCESSFUL');
         const tx=await local.provider.getTransaction(p.hash);if(!same(tx.from,wallet))fail('UNAUTHORIZED_WORKER');
         if(p.id){const r=getRequest(wallet,p.id,true);const kind=r.request.consumer==='welfare'?'claim':'borrow';
-          if(!same(tx.to,local.consumers[r.request.consumer].target)||!await local.consumers[r.request.consumer].consumedRequests(r.request.policy.requestId))fail('TRANSACTION_MISMATCH');
+          const decoded=local.consumers[r.request.consumer].interface.parseTransaction({data:tx.data,value:tx.value});
+          if(r.status!=='VERIFIED'||!same(tx.to,local.consumers[r.request.consumer].target)||decoded?.name!==kind||decoded.args[0].policy.requestId!==r.request.policy.requestId||String(decoded.args[0].passportId)!==r.request.passportId||!await local.consumers[r.request.consumer].consumedRequests(r.request.policy.requestId))fail('TRANSACTION_MISMATCH');
           r.status=kind==='claim'?'CLAIMED':'BORROWED';r.receipt={hash:receipt.hash,blockNumber:receipt.blockNumber,status:receipt.status};r.proof=null;}
         const record=await registry.findByWallet(wallet);if(record)remember(workers.get(record.identityNullifier),'TRANSACTION_CONFIRMED',{hash:receipt.hash});
         return {hash:receipt.hash,status:receipt.status};
@@ -305,6 +348,8 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
       }
       fail('METHOD_UNSUPPORTED');
     }
-    return {bundle,session,dispatch,async close(){login.close();await session.close();}};
-  }catch(e){await session.close();throw e;}
+    let queue=Promise.resolve(),closed=false;
+    const serializedDispatch=(method,p)=>{const job=queue.then(async()=>{if(closed)fail('SESSION_CLOSED');try{return await dispatch(method,p);}finally{persist();}});queue=job.catch(()=>{});return job;};
+    return {bundle,session,dispatch:serializedDispatch,async close(){closed=true;await queue;try{persist();login.close();await session.close();}finally{profile?.close();}}};
+  }catch(e){try{await session?.close();}finally{profile?.close();}throw e;}
 }

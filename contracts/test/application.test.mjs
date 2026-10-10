@@ -15,7 +15,7 @@ test('connected application: signed onboarding, private FIP, real proofs, consum
  async function action(token,i,name,requestId){const a=await call(token,'actionChallenge',{action:name,requestId}),signature=await message(address(i),a.message);const v=await call(token,'actionSubmit',{id:a.id,signature});await assert.rejects(()=>call(token,'actionSubmit',{id:a.id,signature}),/ACTION_EXPIRED/);return v;}
  async function tx(token,i,t,id){const signer=await rpc.getSigner(address(i)),sent=await signer.sendTransaction(t);await sent.wait();return call(token,'transactionMined',{hash:sent.hash,id});}
  let worker,verifier,admin;
- async function proof(token,i,id,consumer){const a=await call(verifier,'policyPrepare',{passportId:id,consumer});await call(verifier,'policySubmit',{id:a.id,signature:await sign(address(4),a)});const approval=await call(token,'approval',{id:a.id});await assert.rejects(async()=>call(token,'approve',{id:a.id,signature:await sign(address(3),approval)}),/WORKER_APPROVAL_INVALID/);await call(token,'approve',{id:a.id,signature:await sign(address(i),approval)});await action(token,i,'RECONSTRUCT_EVIDENCE',a.id);return a.id;}
+ async function proof(token,i,id,consumer){const a=await call(token,'applyService',{consumer});const approval=await call(token,'approval',{id:a.id});await assert.rejects(async()=>call(token,'approve',{id:a.id,signature:await sign(address(3),approval)}),/WORKER_APPROVAL_INVALID/);await call(token,'approve',{id:a.id,signature:await sign(address(i),approval)});await action(token,i,'RECONSTRUCT_EVIDENCE',a.id);return a.id;}
  try{
   assert.equal(await app.session.client.getNextPassportId(),'1');
   await assert.rejects(()=>app.dispatch('dashboard',{}),e=>e.code==='AUTHENTICATION_REQUIRED');
@@ -26,7 +26,8 @@ test('connected application: signed onboarding, private FIP, real proofs, consum
   let dashboard=await call(worker,'dashboard');assert.equal(dashboard.passport.status,'ACTIVE');assert.equal(dashboard.passport.passportId,'1');assert.ok(dashboard.summary.incomeLast6MonthsPaise>0);
   const leak=JSON.stringify(await call(verifier,'dashboard'));for(const secret of ['monthlyGigIncomeTotals','weeklyActivity','phoneHash','privateKey','witness'])assert.ok(!leak.includes(secret));
   const welfare=await proof(worker,2,'1','welfare');await tx(worker,2,await call(worker,'consumerTransaction',{id:welfare}),welfare);await assert.rejects(()=>call(worker,'consumerTransaction',{id:welfare}),/PROOF_REQUIRED/);
-  const loan=await proof(worker,2,'1','loan');await tx(worker,2,await call(worker,'consumerTransaction',{id:loan}),loan);dashboard=await call(worker,'dashboard');assert.equal(dashboard.identityState.principal,'100000000');assert.equal(dashboard.identityState.claimed,true);
+  await assert.rejects(()=>call(worker,'applyService',{consumer:'welfare'}),/BENEFIT_ALREADY_CLAIMED/);
+  const loan=await proof(worker,2,'1','loan');await tx(worker,2,await call(worker,'consumerTransaction',{id:loan}),loan);dashboard=await call(worker,'dashboard');assert.equal(dashboard.identityState.principal,'100000000');assert.equal(dashboard.identityState.claimed,true);await assert.rejects(()=>call(worker,'applyService',{consumer:'loan'}),/ACTIVE_LOAN/);
   await tx(admin,0,await call(admin,'adminTransaction',{passportId:'1'}));await tx(admin,0,await call(admin,'adminTransaction',{passportId:'1',authorize:true}));
   await call(admin,'recoveryAuthorize',{passportId:'1',wallet:address(3)});
   const replacement=await onboard(3,'RAMESH','+919000000002',dashboard.passport.identityNullifierHash);
@@ -39,6 +40,8 @@ test('connected application: signed onboarding, private FIP, real proofs, consum
   const imran=await onboard(5,'IMRAN','+919000000003');await action(imran,5,'CREATE_CONSENT');await action(imran,5,'MINT_PASSPORT');const imranId=(await call(imran,'dashboard')).passport.passportId;
   const rejected=await proof(imran,5,imranId,'loan');const result=(await call(imran,'dashboard')).requests.find(r=>r.id===rejected).result;assert.equal(result.income,'PASS');assert.equal(result.activity,'FAIL');await assert.rejects(()=>call(imran,'consumerTransaction',{id:rejected}),/CONDITION_FAILED/);
   await assert.rejects(()=>action(imran,5,'REFRESH_PASSPORT'));await action(imran,5,'CREATE_CONSENT');await action(imran,5,'REFRESH_PASSPORT');assert.equal((await call(imran,'dashboard')).passport.evidenceVersion,'2');
+  await assert.rejects(()=>call(replacement,'approval',{id:rejected}),/UNAUTHORIZED_WORKER/);
+  const freshApplication=await call(imran,'applyService',{consumer:'loan'});assert.notEqual(freshApplication.id,rejected);
   await call(imran,'revokeConsent');await assert.rejects(()=>action(imran,5,'REFRESH_PASSPORT'));
   assert.equal(app.session.stats.realProofs,3);
  }finally{await app.close();}

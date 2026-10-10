@@ -1,5 +1,7 @@
 # Product completion validation — 2026-10-10
 
+> Historical validation record. For the subsequent persistent-account and worker-initiated workflow delivery, see [AUTHENTICATION_AND_WORKFLOWS_VALIDATION.md](AUTHENTICATION_AND_WORKFLOWS_VALIDATION.md). Its current behavior supersedes earlier returning-OTP and ephemeral-state descriptions below.
+
 Base: published main `a1e902dae141560ae7c6462bc2db54db528c2d90`. Isolated branch `codex/product-completion`; no edits to original developer checkout or synced reference sources. Remote refs refreshed during this run. PR #2 and #3 are already merged/closed, as verified via GitHub; this work did not merge or close them. Backend A remains executed from SHA-verified blobs at `51ac3e5db7dc7ff032e1256e6b7f71da7c9d770c`; loader now includes five already-implemented onboarding/phone modules. No changes to `circuits/`, `shared/`, Solidity sources or locked references.
 
 ## Targeted reconciliation

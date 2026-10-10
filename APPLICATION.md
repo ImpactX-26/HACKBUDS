@@ -1,66 +1,56 @@
 # Connected local GigVault application
 
-Start from the repository root on Windows with Node.js 24, npm and Git:
+Run `.\Start-GigVault.ps1` from this repository on Windows, then open http://localhost:3000. The frontend owns Backend A services, Backend B's trusted prover and a loopback local EVM through private child-process IPC. Later starts reuse verified proving prerequisites; they do not regenerate Groth16 keys.
 
-```powershell
-.\Start-GigVault.ps1
-```
+## Authentication and registration
 
-Open http://localhost:3000. This command installs only missing dependencies, builds only missing circuit artifacts and compiles shared TypeScript. The frontend server owns a private child process containing Backend A services, Backend B's trusted prover and a loopback EVM. There is no unauthenticated evidence or witness HTTP endpoint. First start may download the free pinned compiler/transcript and create a local proving key. Later starts reuse public proving prerequisites from `contracts/artifacts/demo-setup-cache`, after checking all six artifact digests and setup identity. No wallet keys or ceremony entropy are saved in that cache. Circom and Solidity consumer rules are unchanged.
+`/signup` uses an EIP-1193 browser wallet. `/development` explicitly isolates unlocked local test wallets and synthetic identity personas. An address or preselected persona never grants account access.
 
-## Acceptance journey
+A new worker signs a random, expiring, single-use wallet challenge and then completes the independent registration challenge, random Mock OTP and trusted synthetic identity binding. The server returns only pending registration until all required checks finish. Mock OTP delivery opens inline, has expiry/cooldown/attempt limits, and is not SMS possession verification. Genuine Anon Aadhaar remains unavailable.
 
-1. Select a local development wallet and verify ownership using the server-issued EIP-712 challenge. This creates a restricted HttpOnly bootstrap session, not a completed worker login; it expires after 30 minutes. Private worker access is denied until authentication completes.
-2. Begin identity registration and sign the independent wallet challenge. Select RAMESH, use the supplied synthetic phone and send a phone code. The local test mailbox opens inline automatically. Enter that random code, then complete signed synthetic identity verification. Until both checks complete, the UI shows pending registration rather than signed-in worker status. Resend has a live cooldown; a rejected resend retains the current mailbox. Reload resumes the active onboarding session. There is no fixed OTP and no real SMS or government verification.
-On later sign-ins, wallet ownership is followed by a fresh OTP to the already registered phone. The server checks its protected phone hash, rejects a different number, and withholds the worker dashboard, evidence, consent and consumer access until OTP verification. Admin and verifier accounts retain their distinct wallet-authenticated roles. The test mailbox emulates delivery, not actual SMS possession.
-3. Review and sign FIP consent, then mint. The attester verifies the signed FIP records, owner and recognized payout sources, calculates schema-2 Poseidon and mines the passport transaction. The private summary comes from that same authenticated snapshot, not frontend constants.
-4. Disconnect; choose Verifier; sign in. Enter the actual passport ID, select welfare, loan or a custom optional policy, and sign/send the request. Consumer policies retain their exact existing thresholds. Custom policies have no universal income rule.
-5. Disconnect; choose the original worker; sign in. Review the exact policy and expiry, approve it, then separately authorize private reconstruction. The trusted prover reconstructs Backend A evidence, checks current commitment/version and generates a real Groth16 proof. The deployed consumer verifies the proof. PASS and valid FAIL are separate from rejected integrity/authentication requests.
-6. Execute welfare claim or loan separately. Welfare is a lifetime claim event/state benefit with **no token transfer**. The loan transfers exactly 100 MockUSDC. Approve exactly 100 MockUSDC and repay it; the dashboard reads actual debt and token balance.
-7. Public passport QR/link exposes only the chain record. Request QR/link leads to the signed request in the authenticated worker dashboard. Verifiers see policy PASS/FAIL and public passport context, never private financial amounts or activity arrays.
+A registered worker signs a fresh wallet challenge and restores the backend account without repeating phone or identity registration. Consent expiry/revocation does not delete the account or prevent returning login. Verifier and administrator authority remain restricted to their configured wallets. Cookie presence is only a session locator; every protected page/API checks the backend session and role, and resource operations independently check ownership.
 
-RAMESH is eligible; IMRAN demonstrates income PASS/activity FAIL; MANJUNATH demonstrates insufficient history. All seven signed FIP personas are supplied by Backend A. Raw evidence stays in Mock FIP; only aggregate worker-specific summaries and bounded action history are retained by the app.
+Challenges retain the existing application EIP-712 context: wallet, random nonce, origin hash, expiry, chain and purpose-specific domain/type. Sessions are opaque, held only in backend memory, and expire after 30 minutes. Cookies are HttpOnly, SameSite Strict and Secure on HTTPS; mutation requests require the configured Origin. Logout invalidates the server session. Browser account/network/disconnect events clear the session, and signing/transaction preflight checks the current wallet and chain. No localStorage flag authorizes anything.
 
-## Refresh and recovery
+## Persistent local state
 
-Refresh asks for a new consent covering the current cutoff, then a separate refresh signature. A consent with an older scope cannot make newer evidence appear fresh. Consent revocation blocks further reconstruction; it does not retroactively delete an already verified proof or revoke the passport. Refresh changes the version/commitment and invalidates previous approvals/proofs.
+The normal frontend uses `contracts/artifacts/application-state`, ignored by Git. Set `GIGVAULT_APPLICATION_DATA` before starting to select another private profile. Keep the **whole directory** together: it contains Ganache's chain database, stable development-wallet seed/RPC port, deployment addresses/code hashes, trusted synthetic signing keys, protected phone references, registry/account records, consent metadata, requests, public proof packages and bounded history. It contains private service material; do not publish it or put it in a served directory.
 
-Connect Administrator. Enter the old passport ID and revoke it, authorize reissue on-chain, then approve a specific replacement wallet address. Sign in as that replacement, enter the granted stable identity in the recovery field, complete its own challenge/OTP and matching synthetic persona verification, give fresh consent and reissue. The original identity remains unchanged; the old wallet loses service access. Welfare claims and outstanding debt survive replacement. Recovery requires both the on-chain admin authorization and private admin-approved replacement binding.
+One live backend owns a profile. Competing owners fail closed. Account snapshots use an atomic rename and file sync. Backend A's file-backed replay protection persists consumed authorizations. Restart verifies the proving setup and deployed bytecode, restores the same chain/contracts and accounts, and requires a new login. Sessions, OTPs, pending wallet challenges, onboarding sessions and recovery grants are temporary. No raw bank statement, financial snapshot arrays or private witness is persisted by GigVault. Mock FIP regenerates its own fixed synthetic source records.
 
-A replacement wallet needs its own local ETH and 100 MockUSDC to repay existing debt. The app does not manufacture a replacement balance or erase debt. In the automated test the old wallet transfers its actual borrowed balance to the replacement. A real lost-wallet scenario requires the replacement to obtain test tokens separately. The originally registered protected phone reference remains in the identity registry; replacement OTP authenticates the recovery session.
+This is verified for orderly process restarts. Chain writes and the account JSON are separate stores, not a production transaction database; an abrupt crash between mining and metadata persistence can require reconciliation. Back up the complete private profile with the service stopped. No migration or automatic reset replaces an incompatible profile. RPC port conflicts and mismatched/missing chain state fail closed.
+
+## Worker journey
+
+After first registration, review and sign financial consent, then separately authorize passport issuance. Backend A checks FIP signature, account ownership and recognized payout sources; the attester derives the schema-2 Poseidon commitment and mines the actual passport. Private summaries derive from that same authenticated snapshot.
+
+Worker routes remain Overview, My GigPassport, Work Evidence, Consent & Privacy, Verification Requests, Welfare Benefits, Microcredit and Activity & Settings. Work Evidence requires fresh signed FETCH_FINANCIAL_DATA authorization and returns only the latest 100 sanitized authenticated rows to their owner. Verifiers never receive these records.
+
+Apply for Microcredit or Check Welfare eligibility requests a policy from the **authorized local service wallet**. The backend signs only the existing exact consumer policy for the session-owned passport. Caller-supplied criteria, signer, signature or passport cannot change it. The worker separately reviews the criteria/deadline, signs EIP-712 approval, and authorizes private reconstruction. Backend B checks current commitment/version and generates an actual Groth16 proof; Solidity verifies the proof. A valid proof can return FAIL without implying fraud or revoking the passport.
+
+Borrow or Claim is a separate actual transaction. Lending transfers 100 MockUSDC; exact allowance and repayment clear identity-keyed debt. Reborrowing requires a new service request, worker approval and proof. Welfare records one lifetime claim per stable identity and transfers no token. Balances, debt and claim status come from chain reads, not UI constants. Browser wallets can request a fixed 0.25 local test ETH gas transfer after registration, limited to their session-owned address once per day; these assets have no monetary value.
+
+Expired/rejected/completed requests remain visible for up to 90 days, within the bounded local archive. Old results cannot execute against changed evidence. Renew consent before fresh evidence access; after refresh, request a new policy/approval/proof. Ineligible or obsolete results do not lock out a new application. Refresh changes evidence, not the worker account.
+
+## Verifier and recovery
+
+The verifier portal retains public lookup, custom optional fact policies, fixed service policies, signed request creation, permitted proof results and request history. Only the configured verifier signs these requests; workers explicitly approve them. Public passport lookup/QR exposes the chain record, never private financial summaries.
+
+Admin recovery remains separate: revoke the old passport, authorize reissue on chain, approve a particular replacement binding, then complete replacement wallet/OTP/matching identity checks, fresh consent and reissuance. Stable identity debt and lifetime welfare state survive replacement. Repayment requires actual test-token funds on the replacement wallet.
 
 ## Validation
 
+From the repository root, with the public proving cache configured:
+
 ```powershell
 $env:GIGVAULT_LOCAL_SETUP_CACHE=(Resolve-Path contracts/artifacts/demo-setup-cache).Path
-node --test --test-force-exit --test-concurrency=1 contracts/test/application-auth.test.mjs contracts/test/application.test.mjs
-# While the frontend runs:
+node --test --test-force-exit --test-concurrency=1 contracts/test/application-auth.test.mjs contracts/test/application.test.mjs contracts/test/application-persistence.test.mjs contracts/test/external-wallet.test.mjs contracts/test/browser-wallet.test.mjs contracts/test/application-profile.test.mjs contracts/test/local-wallet-auth.test.mjs
+# While the production frontend runs:
 node --test contracts/test/application-http.mjs
-npm --prefix frontend run typecheck
 npm --prefix frontend run build
 npm --prefix backend test
 ```
 
-The application test runs genuine PASS/FAIL proofs and mined issuance, welfare, borrowing, recovery, repayment and refresh; it also rejects forged approvals, replay, unauthorized roles and revoked consent. HTTP checks cover origin, cookie-owned identity, expired/used login challenges, private mailbox ownership, private-data disclosure, missing passports and quarantined legacy endpoints. Existing contract/prover/circuit tests cover modified policies, stale evidence, tampered Groth16 packages, duplicate identities, Fr/Fq bounds and untrusted Aadhaar configurations. See `docs/review/PRODUCT_COMPLETION_VALIDATION.md` for this run's executed results and browser evidence.
+See `docs/review/AUTHENTICATION_AND_WORKFLOWS_VALIDATION.md` for actual executed results and limits. Historical reports retain their original test evidence; this document supersedes their temporary-state and returning-OTP descriptions.
 
-## Limits and preservation
-
-This is a local synthetic application, not public-chain, live bank, SMS or genuine Aadhaar deployment. Development Ganache wallets are unlocked on loopback; anyone with local machine/RPC access can use them. HttpOnly authentication protects application endpoints against another remote web origin, not a hostile local machine user. A production system needs locked user wallets, durable chain/service metadata, verified identity artifacts and restricted service infrastructure.
-
-State is intentionally in memory and the local chain restarts with the server. Persisted login cookies become invalid after restart. Requests expire after 15 minutes; approvals do not survive changed passport evidence. Proving is serialized and can take several minutes. The retained UI is English; translation and injected-wallet extension acceptance were not exercised in this run. External wallets need ETH on chain 1337; the default supplied development-wallet flow is the acceptance environment.
-
-Legacy emergency UI sources and branches remain in Git history. Their routes redirect to the connected application and their APIs return 410. The old P-256 QR owner-signature bypass is removed. The old mock libraries are preserved for comparison and cannot authorize this application. No legacy circuits/commitments were relabelled, no consumer rules changed, and main was not merged by this work.
-
-## Product portals — 10 October 2026
-
-The public home introduces the product. `/signup` is browser-wallet entry; `/development` isolates synthetic personas and unlocked local wallets. `/verifier-access` and `/lookup` are separate public routes. No browser wallet is silently replaced with a development wallet.
-
-Worker routes: `/worker`, `/worker/passport`, `/worker/evidence`, `/worker/privacy`, `/worker/requests`, `/worker/welfare`, `/worker/credit`, `/worker/activity`. Verifier routes: `/verifier`, `/verifier/lookup`, `/verifier/new`, `/verifier/results`, `/verifier/history`. `/admin` remains wallet-gated recovery. Every protected server page validates the private application session and role before rendering. Pending workers return to guided authentication; workers without a passport finish consent and issuance. Request deep links preserve their destination through worker authentication.
-
-For local evaluation, open Development environment, choose the intended workspace, and connect its supplied development wallet. New workers complete wallet ownership, independent registration challenge, delivered random OTP, explicitly selected synthetic identity, signed FIP consent and actual passport creation. Returning workers complete fresh registered-phone OTP. Verifiers create signed requests; workers separately approve their criteria and authorize proof reconstruction. Welfare and credit each have their own execution screen with mined receipts.
-
-Work Evidence requires a fresh signed FETCH_FINANCIAL_DATA authorization. The server verifies the trusted FIP signature and owner, reuses Backend A classification, and returns only the latest 100 sanitized rows to that authenticated worker. These rows remain in page memory. Verifiers receive no such response. Passport/private summaries derive from the minted snapshot and may precede a later authorized evidence view. Consent scope and expiry are visible, with revocation and renewal controls.
-
-This is still an ephemeral local evaluation service. Request history contains currently retained signed requests and ends at their deadline; it is not a persistent verifier archive. Refresh or revocation changes the displayed live passport context and prevents an obsolete verified result from being offered for consumer execution. Genuine Aadhaar and SMS remain explicitly unavailable.
-
-The current portals reuse the original frontend visual identity from commit 1372b64 (sky-blue grid, glass surfaces, gradient wordmark/controls and colored checklist), adapted to the protected multipage flow. See docs/review/ORIGINAL_DESIGN_INTEGRATION.md for source comparison, restored elements, deliberate differences and validation.
+The application retains the restored original design from commit 1372b64 and the protected multipage architecture. No circuits, Solidity sources, shared financial/proof formats or EIP-712 consumer authorization rules changed. Synthetic OTP/IDP/FIP, MockUSDC and local EVM remain disclosed. This is a local evaluation application; unlocked development RPC accounts do not secure the service against a hostile local machine user. No wallet extension is installed on this device: independent EIP-1193 test-provider acceptance is distinct from unperformed MetaMask extension acceptance.

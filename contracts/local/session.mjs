@@ -14,8 +14,8 @@ import {BackendError} from '../integration/errors.mjs';
 /** Owns a persistent LOCAL synthetic session. No financial arrays are retained or exported.
  * Each resolver call regenerates the disposable fixture from its scenario and public metadata.
  */
-export async function createSeededSession({port=0,application=false}={}) {
-  const local=await deployLocal({port,application});
+export async function createSeededSession({port=0,application=false,profile=null}={}) {
+  const local=await deployLocal({port,application,profile});
   let closed=false,closePromise;
   const jobs=new Set(),proofMetrics=[];
   const hashes=await createProvisionalPoseidon(),engine=createProofEngine(local.setup);

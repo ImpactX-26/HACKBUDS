@@ -5,7 +5,7 @@ export const dynamic='force-dynamic';
 const allowed=new Set(['info','publicPassport','challenge','login','logout','dashboard','onboardStart','onboardWallet','otpStart','otpMailbox','otpVerify',
   'loginOtpStart','loginOtpMailbox','loginOtpVerify',
   'identityCommit','actionChallenge','actionSubmit','revokeConsent','policyPrepare','policySubmit','approval','approve','reject',
-  'consumerTransaction','transactionMined','repaymentTransaction','adminTransaction','recoveryAuthorize']);
+  'localGas','applyService','consumerTransaction','transactionMined','repaymentTransaction','adminTransaction','recoveryAuthorize']);
 export async function POST(request:Request,{params}:{params:Promise<{action:string}>}){
   try{
     if(request.headers.get('origin')!==APPLICATION_ORIGIN)return NextResponse.json({error:'ORIGIN_REJECTED'},{status:403});

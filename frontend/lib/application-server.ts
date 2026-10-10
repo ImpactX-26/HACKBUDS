@@ -10,6 +10,7 @@ export async function application(){
   if(!state.gvApplication)state.gvApplication=(async()=>{
     const root=resolve(process.cwd(),'../contracts'),cache=resolve(root,'artifacts/demo-setup-cache');
     if(existsSync(resolve(cache,'manifest.json')))process.env.GIGVAULT_LOCAL_SETUP_CACHE=cache;
+    process.env.GIGVAULT_APPLICATION_DATA??=resolve(root,'artifacts/application-state');
     const {startLocalBackend}=await load(pathToFileURL(resolve(root,'integration/process-client.mjs')).href);
     return startLocalBackend({port:0,evidenceMode:'application',startupTimeoutMs:600000,onDiagnostic:(m:string)=>console.error(m)});
   })().catch(e=>{state.gvApplication=undefined;throw e;});

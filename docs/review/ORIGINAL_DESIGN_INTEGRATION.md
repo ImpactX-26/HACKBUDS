@@ -1,5 +1,7 @@
 # Original frontend design integration
 
+> Historical validation record. For the subsequent persistent-account and worker-initiated workflow delivery, see [AUTHENTICATION_AND_WORKFLOWS_VALIDATION.md](AUTHENTICATION_AND_WORKFLOWS_VALIDATION.md). Its current behavior supersedes earlier returning-OTP and ephemeral-state descriptions below.
+
 ## Source and comparison before edits
 
 The earliest imported frontend is `1372b64cf68489c6ef1ca7a7876b914a2724713c` (9 October 2026, 07:05 IST). Its `globals.css`, `SiteHeader`, `Checklist`, `FourFigures` and landing markup establish the visual identity. `598eb9e4043ac3fe584961de031386957b6e25fb` adds tactile controls and motion. Later demo/auth/integration commits were not used as design authority. The original imported UI already used client-side session state; its visual provenance does not make that login mechanism authoritative.

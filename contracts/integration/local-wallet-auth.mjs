@@ -18,16 +18,17 @@ export function createLocalWalletAuth({domain,origin,now=()=>Math.floor(Date.now
       const value={workerWallet:wallet,nonce,originHash:id(origin),expiresAt:String(expiresAt)};
       challenges.set(nonce,{wallet,expiresAt,value});return {domain:structuredClone(domain),types:structuredClone(localLoginTypes),value};
     },
-    login(nonce,signature){cleanup();const c=challenges.get(nonce);if(!c)fail();
+    login(nonce,signature,connectionMode='external'){cleanup();const c=challenges.get(nonce);if(!c)fail();
       challenges.delete(nonce);let recovered;
       try{recovered=getAddress(verifyTypedData(domain,localLoginTypes,c.value,signature));}catch{fail();}
       if(recovered!==c.wallet)fail();if(sessions.size>=128)throw new BackendError('AUTH_BUSY','Retry shortly.');
       const token=randomBytes(32).toString('base64url'),expiresAt=now()+1800;
-      sessions.set(tokenHash(token),{wallet:c.wallet,expiresAt});return {token,workerWallet:c.wallet,expiresAt};
+      sessions.set(tokenHash(token),{wallet:c.wallet,expiresAt,connectionMode:connectionMode==='local'?'local':'external'});return {token,workerWallet:c.wallet,expiresAt};
     },
     authenticate(token){cleanup();if(typeof token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(token))fail();
       const session=sessions.get(tokenHash(token));if(!session)fail();return session.wallet;
     },
+    connectionMode(token){this.authenticate(token);return sessions.get(tokenHash(token)).connectionMode;},
     logout(token){if(typeof token==='string')sessions.delete(tokenHash(token));},
     expiresAt(token){cleanup();const s=typeof token==='string'&&sessions.get(tokenHash(token));if(!s)fail();return s.expiresAt;},
     close(){challenges.clear();sessions.clear();}

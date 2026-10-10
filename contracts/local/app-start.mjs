@@ -1,7 +1,7 @@
 import {createApplication} from './app-session.mjs';
 // Only the trusted frontend server owns this process. Private service calls travel over IPC.
 console.log=(...v)=>console.error(...v);
-const app=await createApplication({port:Number(process.argv[2]??0),origin:process.env.GIGVAULT_APP_ORIGIN??'http://localhost:3000'});
+const app=await createApplication({port:Number(process.argv[2]??0),origin:process.env.GIGVAULT_APP_ORIGIN??'http://localhost:3000',dataDirectory:process.env.GIGVAULT_APPLICATION_DATA});
 process.send?.({event:'ready',bundle:app.bundle});
 let queue=Promise.resolve(),closed=false;
 process.on('message',m=>{queue=queue.then(async()=>{
