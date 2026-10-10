@@ -38,10 +38,8 @@ test('connected application: signed onboarding, private FIP, real proofs, consum
   await tx(replacement,3,await call(replacement,'repaymentTransaction',{approve:true}));await tx(replacement,3,await call(replacement,'repaymentTransaction'));assert.equal((await call(replacement,'dashboard')).identityState.principal,'0');
   const imran=await onboard(5,'IMRAN','+919000000003');await action(imran,5,'CREATE_CONSENT');await action(imran,5,'MINT_PASSPORT');const imranId=(await call(imran,'dashboard')).passport.passportId;
   const rejected=await proof(imran,5,imranId,'loan');const result=(await call(imran,'dashboard')).requests.find(r=>r.id===rejected).result;assert.equal(result.income,'PASS');assert.equal(result.activity,'FAIL');await assert.rejects(()=>call(imran,'consumerTransaction',{id:rejected}),/CONDITION_FAILED/);
-  await action(imran,5,'REFRESH_PASSPORT');assert.equal((await call(imran,'dashboard')).passport.evidenceVersion,'2');
+  await assert.rejects(()=>action(imran,5,'REFRESH_PASSPORT'));await action(imran,5,'CREATE_CONSENT');await action(imran,5,'REFRESH_PASSPORT');assert.equal((await call(imran,'dashboard')).passport.evidenceVersion,'2');
   await call(imran,'revokeConsent');await assert.rejects(()=>action(imran,5,'REFRESH_PASSPORT'));
   assert.equal(app.session.stats.realProofs,3);
  }finally{await app.close();}
 });
-
-

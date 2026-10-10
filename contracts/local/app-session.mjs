@@ -1,6 +1,7 @@
 import {randomBytes,randomUUID} from 'node:crypto';
 import {getAddress,verifyTypedData} from 'ethers';
 import {createSeededSession} from './session.mjs';
+import {cacheApplicationSetup} from './setup.mjs';
 import {prepareBackendASource} from '../integration/backend-a-source.mjs';
 import {createBackendAPassportClient} from '../integration/backend-a-passport.mjs';
 import {createLocalWalletAuth} from '../integration/local-wallet-auth.mjs';
@@ -19,6 +20,7 @@ const clean=x=>JSON.parse(JSON.stringify(x,(_,v)=>typeof v==='bigint'?v.toString
 export async function createApplication({port=0,origin='http://localhost:3000'}={}){
   const session=await createSeededSession({port,application:true});
   try{
+    cacheApplicationSetup(session.local.setup);
     const {manifest,importModule:load}=prepareBackendASource();
     const paths=['fip/storage','fip/consent-service','fip/fip-service','identity/mock-idp','identity/wallet-auth',
       'evidence/attestation-service','evidence/commitment-adapter','evidence/prover-boundary','fip/personas/index',
@@ -176,6 +178,7 @@ export async function createApplication({port=0,origin='http://localhost:3000'}=
           }catch(e){r.status='REJECTED';r.proof=null;throw e;}
         }
         let result;
+        if(a.cutoff>consents.getConsent(w.consentId).scope.toTimestamp)fail('RENEW_CONSENT_FOR_CURRENT_CUTOFF');
         if(a.value.action==='MINT_PASSPORT')result=await attestation.attestAndMintOnChain(input);
         else if(a.value.action==='REISSUE_PASSPORT')result=await attestation.reissuePassportOnChain(input);
         else{await owner(wallet,w.passportId);result=await attestation.refreshPassportEvidenceOnChain(input,Number(w.passportId));}

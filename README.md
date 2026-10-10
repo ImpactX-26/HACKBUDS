@@ -14,7 +14,7 @@ GigVault connects authenticated payout evidence to a worker-owned passport. Work
 - **Real ZK:** constrained income, history and activity comparisons; 29 public signals; a generated Groth16 Solidity verifier.
 - **Exact authorization:** verifier-signed immutable policies, explicit EIP-712 worker approval, separate A reconstruction authorization and per-consumer replay protection.
 - **Real local actions:** welfare claim, 100 MockUSDC borrowing, exact repayment and identity-based duplicate-claim/debt enforcement.
-- **Connected website:** Next.js onboarding and passport dashboard consume the same local backend deployment. The sample phone/Aadhaar screens are explicitly synthetic; wallet authentication and contract actions are real local operations.
+- **Connected website:** Next.js onboarding and passport dashboard consume the same local backend deployment. Phone OTP and identity verification are cryptographically authenticated synthetic services; wallet authentication and contract actions are real local operations.
 
 ## Run locally
 
@@ -23,10 +23,10 @@ Prerequisites: **Node.js 24**, npm, Git and Windows PowerShell. Linux/macOS cont
 ```powershell
 git clone https://github.com/ImpactX-26/HACKBUDS.git
 cd HACKBUDS
-.\Install-And-Start.ps1
+.\Start-GigVault.ps1
 ```
 
-Open **http://localhost:3000/role**. Enter any 10-digit sample phone number, use OTP **123456**, confirm the sample Aadhaar identity and explicitly approve financial-record consent. Connect the record, review a benefit's policy, sign approval, generate a proof, verify, then claim or borrow. Repay the loan to return debt to zero.
+Open **http://localhost:3000/**. Connect a local worker wallet and sign the server challenge. Complete mock OTP from your authenticated local mailbox and signed synthetic identity onboarding. Sign FIP consent and mint a passport. Disconnect, connect the verifier wallet, sign an exact loan or welfare policy, then return to the worker to approve it, authorize reconstruction and generate a real proof. Claim or borrow separately; approve and repay exactly 100 MockUSDC. See [application instructions](APPLICATION.md) for recovery, tests and limitations.
 
 First setup installs free npm dependencies, downloads the pinned compiler/public transcript and builds the circuits. A fresh local proving key can take several minutes. A previously verified development cache is optional and checked against artifact digests; proving keys, financial witnesses and wallet secrets are never committed. Keep the terminal open while presenting. Restarting creates a fresh local chain; refreshing the browser does not reset claim or debt state.
 
